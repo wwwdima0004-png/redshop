@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Red Shop</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<!-- ═══════════════════ SHOP VIEW ═══════════════════ -->
+<div id="shopView">
+
+  <!-- Header -->
+  <header class="header">
+    <div class="header-logo">
+      <img src="/img/logo.svg" alt="Red Shop" class="logo-icon">
+      <div class="logo-text">
+        <span class="logo-name">Red Shop</span>
+        <span class="logo-sub">Premium Vape Store</span>
+      </div>
+    </div>
+    <div class="header-actions">
+      <button class="btn-icon" onclick="openCart()" id="cartBtn" title="Корзина">
+        <span class="cart-icon">🛒</span>
+        <span class="cart-badge hidden" id="cartBadge">0</span>
+      </button>
+      <button class="btn-icon admin-btn" onclick="openAdminLogin()" title="Админ">⚙️</button>
+    </div>
+  </header>
+
+  <!-- Roulette banner -->
+  <div class="roulette-banner" onclick="openRoulette()">
+    <div class="roulette-banner-content">
+      <span class="roulette-icon">🎰</span>
+      <div>
+        <div class="roulette-banner-title">Крутить рулетку!</div>
+        <div class="roulette-banner-sub">Выиграй скидку до 150 сом • 1 раз в день</div>
+      </div>
+    </div>
+    <span class="arrow-right">›</span>
+  </div>
+
+  <!-- Discount banner (hidden by default) -->
+  <div id="discountBanner" class="discount-banner hidden">
+    <span>🎁 Активна скидка: <strong id="discountBannerAmount">0</strong> сом</span>
+    <button class="btn-remove-discount" onclick="removeDiscount()">✕</button>
+  </div>
+
+  <!-- Catalog -->
+  <div class="catalog-header">
+    <h2>Наши вкусы</h2>
+    <span id="catalogCount" class="catalog-count"></span>
+  </div>
+
+  <div id="catalog" class="catalog-grid">
+    <!-- Products injected by JS -->
+  </div>
+
+  <!-- Empty state -->
+  <div id="catalogEmpty" class="empty-state hidden">
+    <div class="empty-icon">📦</div>
+    <div>Товары не найдены</div>
+  </div>
+
+  <!-- Sticky cart button -->
+  <div id="stickyCart" class="sticky-cart hidden" onclick="openCart()">
+    <span>🛒 Корзина</span>
+    <span id="stickyCartTotal">0 сом</span>
+    <span id="stickyCartCount" class="sticky-cart-count">0</span>
+  </div>
+
+</div>
+
+<!-- ═══════════════════ MODALS ═══════════════════ -->
+
+<!-- Cart Modal -->
+<div id="cartModal" class="modal-overlay hidden" onclick="closeOnOverlay(event, 'cartModal')">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>Корзина</h2>
+      <button class="btn-close" onclick="closeModal('cartModal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="cartItems" class="cart-items"></div>
+      <div id="cartEmpty" class="empty-state hidden">
+        <div class="empty-icon">🛒</div>
+        <div>Корзина пуста</div>
+      </div>
+    </div>
+    <div class="modal-footer" id="cartFooter">
+      <div class="cart-summary">
+        <div class="summary-row">
+          <span>Сумма:</span>
+          <span id="cartSubtotal">0 сом</span>
+        </div>
+        <div class="summary-row discount-row hidden" id="discountRow">
+          <span>🎁 Скидка:</span>
+          <span id="cartDiscountDisplay" class="discount-value">−0 сом</span>
+        </div>
+        <div class="summary-row total-row">
+          <span>Итого:</span>
+          <span id="cartTotal">0 сом</span>
+        </div>
+      </div>
+      <button class="btn-primary btn-full" onclick="checkout()" id="checkoutBtn" disabled>
+        Оформить заказ
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Roulette Modal -->
+<div id="rouletteModal" class="modal-overlay hidden" onclick="closeOnOverlay(event, 'rouletteModal')">
+  <div class="modal modal-roulette">
+    <div class="modal-header">
+      <h2>🎰 Рулетка скидок</h2>
+      <button class="btn-close" onclick="closeModal('rouletteModal')">✕</button>
+    </div>
+    <div class="modal-body roulette-body">
+      <p class="roulette-desc">Крутите рулетку раз в день и получите скидку на заказ!</p>
+
+      <div class="wheel-wrapper">
+        <div class="wheel-pointer">▼</div>
+        <canvas id="wheelCanvas" width="260" height="260"></canvas>
+      </div>
+
+      <div class="roulette-legend">
+        <div class="legend-item"><span class="legend-dot" style="background:#e31e24"></span>50 сом — 75%</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#8b0000"></span>100 сом — 15%</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#ff6b6b"></span>150 сом — 10%</div>
+      </div>
+
+      <div id="spinResultBox" class="spin-result hidden">
+        <div id="spinResultIcon">🎉</div>
+        <div id="spinResultText"></div>
+      </div>
+
+      <button id="spinBtn" class="btn-primary btn-full btn-spin" onclick="spinWheel()">
+        Крутить!
+      </button>
+      <div id="spinCooldown" class="spin-cooldown hidden">
+        Следующий спин доступен завтра
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Admin Login Modal -->
+<div id="adminLoginModal" class="modal-overlay hidden" onclick="closeOnOverlay(event, 'adminLoginModal')">
+  <div class="modal modal-sm">
+    <div class="modal-header">
+      <h2>Вход в админ панель</h2>
+      <button class="btn-close" onclick="closeModal('adminLoginModal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>Пароль администратора</label>
+        <input type="password" id="adminPasswordInput" class="form-input" placeholder="Введите пароль"
+          onkeydown="if(event.key==='Enter') loginAdmin()">
+      </div>
+      <div id="adminLoginError" class="error-msg hidden">Неверный пароль</div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-primary btn-full" onclick="loginAdmin()">Войти</button>
+    </div>
+  </div>
+</div>
+
+<!-- Image Preview Modal -->
+<div id="imagePreviewModal" class="modal-overlay hidden" onclick="closeModal('imagePreviewModal')">
+  <div class="modal modal-sm" style="background:transparent;box-shadow:none;">
+    <img id="imagePreviewImg" src="" alt="" style="max-width:90vw;max-height:80vh;border-radius:12px;">
+  </div>
+</div>
+
+<!-- ═══════════════════ ADMIN PANEL ═══════════════════ -->
+<div id="adminPanel" class="hidden">
+
+  <!-- Admin Header -->
+  <header class="header admin-header">
+    <div class="header-logo">
+      <img src="/img/logo.svg" alt="Red Shop" class="logo-icon">
+      <div class="logo-text">
+        <span class="logo-name">Red Shop</span>
+        <span class="logo-sub admin-badge">Admin Panel</span>
+      </div>
+    </div>
+    <button class="btn-text" onclick="logoutAdmin()">Выйти</button>
+  </header>
+
+  <!-- Admin Tabs Nav -->
+  <nav class="admin-nav">
+    <button class="admin-nav-btn active" data-tab="products" onclick="switchAdminTab('products')">
+      <span>📦</span><span>Товары</span>
+    </button>
+    <button class="admin-nav-btn" data-tab="orders" onclick="switchAdminTab('orders')">
+      <span>📋</span><span>Заказы</span>
+      <span id="newOrdersBadge" class="nav-badge hidden">0</span>
+    </button>
+    <button class="admin-nav-btn" data-tab="messages" onclick="switchAdminTab('messages')">
+      <span>💬</span><span>Сообщения</span>
+    </button>
+    <button class="admin-nav-btn" data-tab="broadcast" onclick="switchAdminTab('broadcast')">
+      <span>📢</span><span>Рассылка</span>
+    </button>
+    <button class="admin-nav-btn" data-tab="stats" onclick="switchAdminTab('stats')">
+      <span>📊</span><span>Статистика</span>
+    </button>
+  </nav>
+
+  <!-- ── TAB: Products ── -->
+  <div id="tab-products" class="admin-tab">
+    <div class="tab-content">
+      <h3 class="tab-title">Управление товарами</h3>
+
+      <!-- Add product form -->
+      <div class="card">
+        <h4>Добавить товар</h4>
+        <form id="addProductForm" onsubmit="addProduct(event)" enctype="multipart/form-data">
+          <div class="form-row">
+            <div class="form-group">
+              <label>Название вкуса</label>
+              <input type="text" name="name" class="form-input" placeholder="Watermelon Ice" required>
+            </div>
+            <div class="form-group">
+              <label>Цена (сом)</label>
+              <input type="number" name="price" class="form-input" placeholder="350" min="1" required>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Описание</label>
+            <input type="text" name="description" class="form-input" placeholder="Краткое описание вкуса">
+          </div>
+          <div class="form-group">
+            <label>Фото товара</label>
+            <div class="file-upload-area" onclick="document.getElementById('addProductPhoto').click()">
+              <div id="addProductPhotoPreview" class="file-preview-icon">📷</div>
+              <span id="addProductPhotoName">Выберите фото</span>
+            </div>
+            <input type="file" id="addProductPhoto" name="photo" accept="image/*" style="display:none"
+              onchange="previewAddPhoto(this)">
+          </div>
+          <button type="submit" class="btn-primary">➕ Добавить товар</button>
+        </form>
+      </div>
+
+      <!-- Products list -->
+      <h4 class="section-title">Список товаров</h4>
+      <div id="adminProductsList" class="admin-products-list"></div>
+    </div>
+  </div>
+
+  <!-- ── TAB: Orders ── -->
+  <div id="tab-orders" class="admin-tab hidden">
+    <div class="tab-content">
+      <div class="tab-header-row">
+        <h3 class="tab-title">Заказы</h3>
+        <div class="orders-filter">
+          <button class="filter-btn active" data-filter="all" onclick="filterOrders('all')">Все</button>
+          <button class="filter-btn" data-filter="new" onclick="filterOrders('new')">Новые</button>
+          <button class="filter-btn" data-filter="processing" onclick="filterOrders('processing')">В работе</button>
+          <button class="filter-btn" data-filter="done" onclick="filterOrders('done')">Выполнены</button>
+        </div>
+      </div>
+      <div id="ordersList" class="orders-list"></div>
+      <div id="ordersEmpty" class="empty-state hidden">
+        <div class="empty-icon">📋</div>
+        <div>Заказов пока нет</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── TAB: Messages ── -->
+  <div id="tab-messages" class="admin-tab hidden">
+    <div class="messages-layout">
+
+      <!-- Users sidebar -->
+      <div id="messagesSidebar" class="messages-sidebar">
+        <div class="sidebar-header">
+          <h4>Диалоги</h4>
+          <button class="btn-icon" onclick="loadMessages()" title="Обновить">🔄</button>
+        </div>
+        <div id="usersList" class="users-list"></div>
+        <div id="usersEmpty" class="empty-state hidden">
+          <div class="empty-icon">💬</div>
+          <div style="font-size:13px">Нет сообщений</div>
+        </div>
+      </div>
+
+      <!-- Chat window -->
+      <div id="chatWindow" class="chat-window">
+        <div id="chatPlaceholder" class="chat-placeholder">
+          <div class="empty-icon">💬</div>
+          <div>Выберите диалог слева</div>
+        </div>
+        <div id="chatContent" class="hidden">
+          <div class="chat-header">
+            <button class="btn-icon back-btn" onclick="closeChatWindow()">‹</button>
+            <div class="chat-user-info">
+              <div id="chatUserName" class="chat-user-name"></div>
+              <div id="chatUserId" class="chat-user-id"></div>
+            </div>
+          </div>
+          <div id="chatMessages" class="chat-messages"></div>
+          <div class="chat-input-row">
+            <input type="text" id="chatInput" class="form-input" placeholder="Написать сообщение..."
+              onkeydown="if(event.key==='Enter') sendAdminMessage()">
+            <button class="btn-primary btn-send" onclick="sendAdminMessage()">➤</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── TAB: Broadcast ── -->
+  <div id="tab-broadcast" class="admin-tab hidden">
+    <div class="tab-content">
+      <h3 class="tab-title">Рассылка</h3>
+      <div class="card">
+        <p class="broadcast-hint">Сообщение будет отправлено всем пользователям, которые когда-либо писали боту.</p>
+        <div class="form-group">
+          <label>Текст сообщения</label>
+          <textarea id="broadcastText" class="form-input form-textarea" placeholder="Введите текст рассылки..." rows="5"></textarea>
+        </div>
+        <div class="form-group">
+          <label>Фото (необязательно)</label>
+          <div class="file-upload-area" onclick="document.getElementById('broadcastPhotoInput').click()">
+            <div id="broadcastPhotoPreview" class="file-preview-icon">📷</div>
+            <span id="broadcastPhotoName">Прикрепить фото</span>
+          </div>
+          <input type="file" id="broadcastPhotoInput" accept="image/*" style="display:none"
+            onchange="previewBroadcastPhoto(this)">
+        </div>
+        <div id="broadcastResult" class="broadcast-result hidden"></div>
+        <button class="btn-primary btn-full" onclick="sendBroadcast()" id="broadcastBtn">
+          📢 Отправить всем
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── TAB: Stats ── -->
+  <div id="tab-stats" class="admin-tab hidden">
+    <div class="tab-content">
+      <h3 class="tab-title">Статистика</h3>
+      <div id="statsGrid" class="stats-grid">
+        <!-- Injected by JS -->
+      </div>
+      <h4 class="section-title" style="margin-top:24px">Топ товаров</h4>
+      <div id="statsTopProducts" class="top-products-list"></div>
+      <button class="btn-outline btn-full" style="margin-top:16px" onclick="loadStats()">🔄 Обновить</button>
+    </div>
+  </div>
+
+</div>
+
+<!-- Toast notification -->
+<div id="toast" class="toast hidden"></div>
+
+<script src="app.js"></script>
+</body>
+</html>

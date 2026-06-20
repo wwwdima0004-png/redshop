@@ -1,0 +1,74 @@
+[
+  {
+    "id": 1,
+    "name": "Watermelon Ice",
+    "price": 350,
+    "photo": "/img/placeholder.svg",
+    "available": true,
+    "sales": 24,
+    "description": "Арбуз со льдом"
+  },
+  {
+    "id": 2,
+    "name": "Mango Peach Ice",
+    "price": 350,
+    "photo": "/img/placeholder.svg",
+    "available": true,
+    "sales": 18,
+    "description": "Манго и персик"
+  },
+  {
+    "id": 3,
+    "name": "Blueberry Ice",
+    "price": 380,
+    "photo": "/img/placeholder.svg",
+    "available": true,
+    "sales": 12,
+    "description": "Черника со льдом"
+  },
+  {
+    "id": 4,
+    "name": "Strawberry Kiwi",
+    "price": 350,
+    "photo": "/img/placeholder.svg",
+    "available": true,
+    "sales": 20,
+    "description": "Клубника и киви"
+  },
+  {
+    "id": 5,
+    "name": "Lychee Ice",
+    "price": 400,
+    "photo": "/img/placeholder.svg",
+    "available": true,
+    "sales": 9,
+    "description": "Личи со льдом"
+  },
+  {
+    "id": 6,
+    "name": "Grape Ice",
+    "price": 350,
+    "photo": "/img/placeholder.svg",
+    "available": false,
+    "sales": 7,
+    "description": "Виноград со льдом"
+  },
+  {
+    "id": 7,
+    "name": "Peach Ice",
+    "price": 360,
+    "photo": "/img/placeholder.svg",
+    "available": true,
+    "sales": 15,
+    "description": "Персик со льдом"
+  },
+  {
+    "id": 8,
+    "name": "Cola Ice",
+    "price": 350,
+    "photo": "/img/placeholder.svg",
+    "available": true,
+    "sales": 11,
+    "description": "Кола со льдом"
+  }
+]
