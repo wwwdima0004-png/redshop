@@ -37,9 +37,19 @@ function ensureDataFiles() {
   const uploadsDir = path.join(__dirname, 'public', 'uploads');
   if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 
-  if (!fs.existsSync(path.join(DATA_DIR, 'products.json'))) {
-    writeJSON('products.json', defaultProducts());
+  // Восстановить products.json если файл отсутствует или пустой/сломан
+  const productsPath = path.join(DATA_DIR, 'products.json');
+  let needsDefault = false;
+  if (!fs.existsSync(productsPath)) {
+    needsDefault = true;
+  } else {
+    try {
+      const parsed = JSON.parse(fs.readFileSync(productsPath, 'utf8'));
+      if (!Array.isArray(parsed) || parsed.length === 0) needsDefault = true;
+    } catch { needsDefault = true; }
   }
+  if (needsDefault) writeJSON('products.json', defaultProducts());
+
   if (!fs.existsSync(path.join(DATA_DIR, 'orders.json'))) writeJSON('orders.json', []);
   if (!fs.existsSync(path.join(DATA_DIR, 'users.json'))) writeJSON('users.json', []);
   if (!fs.existsSync(path.join(DATA_DIR, 'messages.json'))) writeJSON('messages.json', {});

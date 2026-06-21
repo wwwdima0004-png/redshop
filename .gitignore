@@ -1,0 +1,13 @@
+# Dependencies
+node_modules/
+
+# Environment variables (keep .env.example)
+.env
+
+# Uploaded images (ephemeral on Render — not stored in git)
+public/uploads/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.log
