@@ -30,15 +30,32 @@ const state = {
 // ─── API ─────────────────────────────────────────────────────────────────────
 const API = '/api';
 
+// Build admin auth headers from whichever credential is available
+function adminHeaders() {
+  const h = {};
+  if (state.adminPassword)    h['x-admin-password']     = state.adminPassword;
+  if (state.telegramInitData) h['x-telegram-init-data'] = state.telegramInitData;
+  if (state.adminUserId)      h['x-admin-userid']        = String(state.adminUserId);
+  return h;
+}
+
+// Wrapper for admin fetch calls with FormData (multer doesn't accept JSON)
+async function adminFormFetch(method, url, formData) {
+  const res = await fetch(url, { method, headers: adminHeaders(), body: formData });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
 async function api(method, endpoint, body, adminRequired = false) {
   const opts = {
     method,
     headers: { 'Content-Type': 'application/json' }
   };
   if (adminRequired) {
-    if (state.adminPassword)    opts.headers['x-admin-password']       = state.adminPassword;
-    if (state.telegramInitData) opts.headers['x-telegram-init-data']   = state.telegramInitData;
-    if (state.adminUserId)      opts.headers['x-admin-userid']         = String(state.adminUserId);
+    Object.assign(opts.headers, adminHeaders());
   }
   if (body && !(body instanceof FormData)) {
     opts.body = JSON.stringify(body);
@@ -121,17 +138,25 @@ function renderCatalog() {
     const card = document.createElement('div');
     card.className = `product-card${!product.available ? ' out-of-stock' : ''}`;
     const inCart = state.cart.some(c => c.id === product.id);
+    // Normalise photo path — ensure it always starts with /
+    const photoSrc = product.photo
+      ? (product.photo.startsWith('http') ? product.photo : product.photo.startsWith('/') ? product.photo : '/' + product.photo)
+      : '/img/placeholder.svg';
 
     card.innerHTML = `
-      <div class="product-photo-wrap" onclick="previewImage('${product.photo}')">
-        <img class="product-photo" src="${product.photo}" alt="${product.name}"
-          onerror="this.src='/img/placeholder.svg'">
+      <div class="product-photo-wrap" onclick="previewImage('${photoSrc}')">
+        <div class="img-skeleton" id="skel_${product.id}"></div>
+        <img class="product-photo" src="${photoSrc}" alt="${product.name}"
+          loading="lazy"
+          onload="this.previousElementSibling.style.display='none';this.style.opacity='1'"
+          onerror="this.src='/img/placeholder.svg';this.previousElementSibling.style.display='none';this.style.opacity='1'"
+          style="opacity:0;transition:opacity 0.3s">
         ${!product.available ? '<div class="out-of-stock-overlay">Нет в наличии</div>' : ''}
         <div class="product-badge">ВЕЙП</div>
       </div>
       <div class="product-info">
-        <div class="product-name">${product.name}</div>
-        <div class="product-desc">${product.description || ''}</div>
+        <div class="product-name">${escapeHtml(product.name)}</div>
+        <div class="product-desc">${escapeHtml(product.description || '')}</div>
         <div class="product-price">${product.price} сом</div>
       </div>
       <button class="btn-add-cart ${inCart ? 'in-cart' : ''}"
@@ -356,26 +381,84 @@ function showOrderSuccess(orderData, cartItems) {
 
 function openBotChat() {
   const botUrl = 'https://t.me/Red1shopbot';
-  if (tg?.openTelegramLink) {
+  closeModal('orderSuccessModal');
+  if (tg && typeof tg.openTelegramLink === 'function') {
     tg.openTelegramLink(botUrl);
+    // Close the Mini App after a short delay so the link opens
+    setTimeout(() => { try { tg.close(); } catch {} }, 350);
   } else {
     window.open(botUrl, '_blank');
   }
 }
 
 // ═══════════════════════════════════════════════════════════════
-// ROULETTE
+// ROULETTE — Neon vibrant redesign
 // ═══════════════════════════════════════════════════════════════
 
-// ═══════════════════════════════════════════════════════════════
-// ROULETTE — Beautiful redesign
-// ═══════════════════════════════════════════════════════════════
-
+// Each segment: 4-stop gradient colours + neon border colour
 const SEGMENTS = [
-  { label: '50',  sub: 'сом', discount: 50,  degrees: 270, dark: '#7a0000', mid: '#cc1111', light: '#e31e24', textDark: false },
-  { label: '100', sub: 'сом', discount: 100, degrees: 54,  dark: '#1a1a1a', mid: '#2a2a2a', light: '#3a3a3a', textDark: false },
-  { label: '150', sub: 'сом', discount: 150, degrees: 36,  dark: '#cccccc', mid: '#f0f0f0', light: '#ffffff', textDark: true  }
+  {
+    label: '50', sub: 'сом', discount: 50, degrees: 270,
+    // Fire: bright orange → red → deep crimson
+    c0: '#ff8c00', c1: '#ff3300', c2: '#cc0000', c3: '#7a0000',
+    textDark: false, neon: '#ff4400'
+  },
+  {
+    label: '100', sub: 'сом', discount: 100, degrees: 54,
+    // Purple: violet → deep purple
+    c0: '#dd00ff', c1: '#9900cc', c2: '#660099', c3: '#330055',
+    textDark: false, neon: '#cc00ff'
+  },
+  {
+    label: '150', sub: 'сом', discount: 150, degrees: 36,
+    // Gold jackpot: white → gold → amber
+    c0: '#ffffff', c1: '#ffe033', c2: '#ffaa00', c3: '#cc6600',
+    textDark: true, neon: '#ffd700'
+  }
 ];
+
+// ─── Web Audio ──────────────────────────────────────────────────────────────
+let audioCtx = null;
+function getAudioCtx() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  return audioCtx;
+}
+
+// Single tick sound (used during spin)
+function playTick(pitch = 600, vol = 0.18) {
+  try {
+    const ctx = getAudioCtx();
+    const osc = ctx.createOscillator();
+    const g   = ctx.createGain();
+    osc.connect(g); g.connect(ctx.destination);
+    osc.type = 'square';
+    osc.frequency.value = pitch;
+    g.gain.setValueAtTime(vol, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.04);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.04);
+  } catch {}
+}
+
+// Win fanfare: ascending arpeggio
+function playWinSound() {
+  try {
+    const ctx = getAudioCtx();
+    const notes = [523, 659, 784, 1047, 1319]; // C E G C E
+    notes.forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const g   = ctx.createGain();
+      osc.connect(g); g.connect(ctx.destination);
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      const t = ctx.currentTime + i * 0.11;
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(0.35, t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+      osc.start(t); osc.stop(t + 0.35);
+    });
+  } catch {}
+}
 
 function checkSpinStatus() {
   const lastSpin = localStorage.getItem('redshop_lastSpin');
@@ -405,41 +488,49 @@ function openRoulette() {
   requestAnimationFrame(() => drawWheel(state.wheelRotation));
 }
 
-function drawWheel(rotation) {
+function drawWheel(rotation, glowIntensity = 1) {
   const canvas = document.getElementById('wheelCanvas');
   if (!canvas) return;
   const ctx = canvas.getContext('2d');
   const W = canvas.width, H = canvas.height;
   const cx = W / 2, cy = H / 2;
-  const R = Math.min(cx, cy) - 10;
+  const R = Math.min(cx, cy) - 12;
 
   ctx.clearRect(0, 0, W, H);
 
-  // Outer ambient glow
-  const glow = ctx.createRadialGradient(cx, cy, R * 0.6, cx, cy, R + 14);
-  glow.addColorStop(0, 'transparent');
-  glow.addColorStop(0.7, 'rgba(227,30,36,0.08)');
-  glow.addColorStop(1,   'rgba(227,30,36,0.22)');
-  ctx.beginPath(); ctx.arc(cx, cy, R + 14, 0, 2 * Math.PI);
-  ctx.fillStyle = glow; ctx.fill();
+  // ── Neon outer glow ring (multi-layer) ──
+  const gi = Math.max(0.3, glowIntensity);
+  [
+    { r: R + 22, a: 0.08 * gi },
+    { r: R + 14, a: 0.18 * gi },
+    { r: R + 6,  a: 0.35 * gi }
+  ].forEach(({ r, a }) => {
+    const halo = ctx.createRadialGradient(cx, cy, R - 4, cx, cy, r);
+    halo.addColorStop(0, `rgba(255,80,0,0)`);
+    halo.addColorStop(0.6, `rgba(255,100,0,${a * 0.6})`);
+    halo.addColorStop(1,   `rgba(255,200,0,${a})`);
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, 2 * Math.PI);
+    ctx.fillStyle = halo; ctx.fill();
+  });
 
   ctx.save();
   ctx.translate(cx, cy);
   ctx.rotate(rotation);
 
-  let startAngle = -Math.PI / 2; // 12 o'clock
+  let startAngle = -Math.PI / 2;
 
-  SEGMENTS.forEach((seg) => {
-    const angle = (seg.degrees / 360) * 2 * Math.PI;
+  SEGMENTS.forEach(seg => {
+    const angle    = (seg.degrees / 360) * 2 * Math.PI;
     const midAngle = startAngle + angle / 2;
 
-    // Gradient fill (light near pointer edge → dark at rim)
-    const gx1 = Math.cos(midAngle) * R * 0.15, gy1 = Math.sin(midAngle) * R * 0.15;
-    const gx2 = Math.cos(midAngle) * R * 0.95, gy2 = Math.sin(midAngle) * R * 0.95;
+    // 4-stop radial gradient from center outward
+    const gx1 = Math.cos(midAngle) * R * 0.12, gy1 = Math.sin(midAngle) * R * 0.12;
+    const gx2 = Math.cos(midAngle) * R * 0.98, gy2 = Math.sin(midAngle) * R * 0.98;
     const grad = ctx.createLinearGradient(gx1, gy1, gx2, gy2);
-    grad.addColorStop(0,    seg.light);
-    grad.addColorStop(0.45, seg.mid);
-    grad.addColorStop(1,    seg.dark);
+    grad.addColorStop(0,    seg.c0);
+    grad.addColorStop(0.3,  seg.c1);
+    grad.addColorStop(0.65, seg.c2);
+    grad.addColorStop(1,    seg.c3);
 
     ctx.beginPath();
     ctx.moveTo(0, 0);
@@ -448,123 +539,134 @@ function drawWheel(rotation) {
     ctx.fillStyle = grad;
     ctx.fill();
 
-    // Divider lines
-    ctx.strokeStyle = 'rgba(0,0,0,0.9)';
-    ctx.lineWidth = 2.5;
+    // Sector dividers — black with slight glow
+    ctx.shadowColor = 'rgba(0,0,0,0.9)';
+    ctx.shadowBlur = 4;
+    ctx.strokeStyle = 'rgba(0,0,0,0.95)';
+    ctx.lineWidth = 3;
     ctx.stroke();
+    ctx.shadowBlur = 0;
 
-    // Inner shimmer highlight
-    const shim = ctx.createLinearGradient(
-      Math.cos(startAngle) * 12, Math.sin(startAngle) * 12,
-      Math.cos(startAngle + angle) * 12, Math.sin(startAngle + angle) * 12
-    );
-    shim.addColorStop(0, 'rgba(255,255,255,0.18)');
-    shim.addColorStop(1, 'rgba(255,255,255,0)');
+    // Inner radial light burst (highlight near centre)
+    const burst = ctx.createRadialGradient(0, 0, 0, 0, 0, R * 0.5);
+    burst.addColorStop(0,   'rgba(255,255,255,0.22)');
+    burst.addColorStop(0.5, 'rgba(255,255,255,0.06)');
+    burst.addColorStop(1,   'rgba(255,255,255,0)');
     ctx.beginPath();
     ctx.moveTo(0, 0);
-    ctx.arc(0, 0, R * 0.42, startAngle, startAngle + angle);
+    ctx.arc(0, 0, R * 0.5, startAngle, startAngle + angle);
     ctx.closePath();
-    ctx.fillStyle = shim;
+    ctx.fillStyle = burst;
     ctx.fill();
 
     // ── Text ──
-    const tx = Math.cos(midAngle) * R * 0.63;
-    const ty = Math.sin(midAngle) * R * 0.63;
-    const textCol   = seg.textDark ? '#111111' : '#ffffff';
-    const shadowCol = seg.textDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.8)';
+    const tr = R * 0.62;
+    const tx = Math.cos(midAngle) * tr;
+    const ty = Math.sin(midAngle) * tr;
+    const textCol   = seg.textDark ? '#1a1a1a' : '#ffffff';
+    const glowCol   = seg.textDark ? 'rgba(0,0,0,0.4)' : seg.neon;
 
     ctx.save();
     ctx.translate(tx, ty);
     ctx.rotate(midAngle + Math.PI / 2);
 
-    const bigFont = seg.degrees >= 200 ? 28 : seg.degrees >= 50 ? 22 : 17;
-    const subFont = seg.degrees >= 200 ? 13 : seg.degrees >= 50 ? 11 : 9;
-    const bigOff  = seg.degrees >= 200 ? -9  : -7;
-    const subOff  = seg.degrees >= 200 ?  12 : seg.degrees >= 50 ? 10 : 8;
+    const bigFont = seg.degrees >= 200 ? 32 : seg.degrees >= 50 ? 24 : 18;
+    const subFont = seg.degrees >= 200 ? 14 : seg.degrees >= 50 ? 11 : 9;
+    const bigOff  = seg.degrees >= 200 ? -11 : -8;
+    const subOff  = seg.degrees >= 200 ?  14 : seg.degrees >= 50 ? 11 : 9;
 
-    ctx.shadowColor = shadowCol; ctx.shadowBlur = 6;
+    // Number with neon text shadow
+    ctx.shadowColor = glowCol; ctx.shadowBlur = 12;
     ctx.fillStyle = textCol;
     ctx.font = `900 ${bigFont}px Inter, Arial, sans-serif`;
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText(seg.label, 0, bigOff);
+    // Second pass for extra punch
+    ctx.shadowBlur = 6;
+    ctx.fillText(seg.label, 0, bigOff);
 
+    // "сом"
+    ctx.shadowBlur = 6;
     ctx.font = `700 ${subFont}px Inter, Arial, sans-serif`;
-    ctx.shadowBlur = 2;
-    ctx.fillStyle = seg.textDark ? 'rgba(0,0,0,0.65)' : 'rgba(255,255,255,0.82)';
+    ctx.fillStyle = seg.textDark ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.9)';
     ctx.fillText(seg.sub, 0, subOff);
 
     ctx.restore();
     startAngle += angle;
   });
 
-  // Tick marks
-  for (let deg = 0; deg < 360; deg += 6) {
-    const rad = deg * Math.PI / 180;
+  // ── Tick marks on the rim ──
+  for (let deg = 0; deg < 360; deg += 5) {
+    const rad   = deg * Math.PI / 180;
     const major = deg % 30 === 0;
-    const len = major ? 8 : 4;
+    const len   = major ? 9 : 5;
     ctx.beginPath();
     ctx.moveTo(Math.cos(rad) * (R - len), Math.sin(rad) * (R - len));
-    ctx.lineTo(Math.cos(rad) * R,         Math.sin(rad) * R);
-    ctx.strokeStyle = major ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.15)';
-    ctx.lineWidth = major ? 2 : 1;
+    ctx.lineTo(Math.cos(rad) * R,          Math.sin(rad) * R);
+    ctx.strokeStyle = major ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.2)';
+    ctx.lineWidth   = major ? 2.5 : 1;
     ctx.stroke();
   }
 
-  // Diamond markers at sector boundaries
+  // ── Diamond markers at sector boundaries ──
   let bAngle = -Math.PI / 2;
   SEGMENTS.forEach(seg => {
-    const dx = Math.cos(bAngle) * (R + 1);
-    const dy = Math.sin(bAngle) * (R + 1);
+    const dx = Math.cos(bAngle) * (R + 2);
+    const dy = Math.sin(bAngle) * (R + 2);
     ctx.save();
     ctx.translate(dx, dy);
     ctx.rotate(bAngle);
+    ctx.shadowColor = '#ffd700'; ctx.shadowBlur = 8;
     ctx.beginPath();
-    ctx.moveTo(0,-5); ctx.lineTo(3,0); ctx.lineTo(0,5); ctx.lineTo(-3,0);
+    ctx.moveTo(0,-6); ctx.lineTo(3.5,0); ctx.lineTo(0,6); ctx.lineTo(-3.5,0);
     ctx.closePath();
-    ctx.fillStyle = '#fff';
-    ctx.fill();
+    ctx.fillStyle = '#ffffff'; ctx.fill();
     ctx.restore();
     bAngle += (seg.degrees / 360) * 2 * Math.PI;
   });
 
   ctx.restore();
 
-  // Outer border ring
+  // ── Neon outer border (two layers) ──
+  ctx.shadowColor = '#ff4400'; ctx.shadowBlur = 18 * gi;
   ctx.beginPath(); ctx.arc(cx, cy, R, 0, 2 * Math.PI);
-  ctx.strokeStyle = '#e31e24'; ctx.lineWidth = 4; ctx.stroke();
+  ctx.strokeStyle = '#ff6600'; ctx.lineWidth = 5; ctx.stroke();
+  ctx.shadowColor = '#ffcc00'; ctx.shadowBlur = 8 * gi;
+  ctx.strokeStyle = 'rgba(255,220,0,0.6)'; ctx.lineWidth = 2; ctx.stroke();
+  ctx.shadowBlur = 0;
 
-  // Metallic sheen ring
+  // ── Metallic sheen ring ──
   const metal = ctx.createLinearGradient(cx - R, cy - R, cx + R, cy + R);
-  metal.addColorStop(0,   'rgba(255,255,255,0.25)');
-  metal.addColorStop(0.5, 'rgba(255,255,255,0.04)');
-  metal.addColorStop(1,   'rgba(255,255,255,0.18)');
+  metal.addColorStop(0,   'rgba(255,255,255,0.3)');
+  metal.addColorStop(0.5, 'rgba(255,255,255,0.05)');
+  metal.addColorStop(1,   'rgba(255,255,255,0.2)');
   ctx.beginPath(); ctx.arc(cx, cy, R + 2, 0, 2 * Math.PI);
   ctx.strokeStyle = metal; ctx.lineWidth = 3; ctx.stroke();
 
-  // Hub shadow
-  ctx.shadowColor = 'rgba(0,0,0,0.7)'; ctx.shadowBlur = 14;
+  // ── Hub shadow ──
+  ctx.shadowColor = 'rgba(0,0,0,0.8)'; ctx.shadowBlur = 16;
+  ctx.beginPath(); ctx.arc(cx, cy, 30, 0, 2 * Math.PI);
+  ctx.fillStyle = '#050505'; ctx.fill();
+  ctx.shadowBlur = 0;
+
+  // Hub neon ring
+  ctx.shadowColor = '#ff4400'; ctx.shadowBlur = 12;
   ctx.beginPath(); ctx.arc(cx, cy, 28, 0, 2 * Math.PI);
-  ctx.fillStyle = '#0a0a0a'; ctx.fill();
+  ctx.strokeStyle = '#ff6600'; ctx.lineWidth = 3; ctx.stroke();
   ctx.shadowBlur = 0;
 
   // Hub gradient fill
-  const hub = ctx.createRadialGradient(cx - 5, cy - 5, 2, cx, cy, 24);
-  hub.addColorStop(0, '#ff5555'); hub.addColorStop(0.6, '#e31e24'); hub.addColorStop(1, '#7a0000');
-  ctx.beginPath(); ctx.arc(cx, cy, 24, 0, 2 * Math.PI);
+  const hub = ctx.createRadialGradient(cx - 6, cy - 6, 2, cx, cy, 26);
+  hub.addColorStop(0, '#ff7700'); hub.addColorStop(0.5, '#cc3300'); hub.addColorStop(1, '#550000');
+  ctx.beginPath(); ctx.arc(cx, cy, 26, 0, 2 * Math.PI);
   ctx.fillStyle = hub; ctx.fill();
 
-  ctx.beginPath(); ctx.arc(cx, cy, 24, 0, 2 * Math.PI);
-  ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.lineWidth = 2; ctx.stroke();
+  // Hub inner highlight
+  ctx.beginPath(); ctx.arc(cx - 7, cy - 7, 8, 0, 2 * Math.PI);
+  ctx.fillStyle = 'rgba(255,255,255,0.22)'; ctx.fill();
 
-  // Hub highlight
-  ctx.beginPath(); ctx.arc(cx - 6, cy - 6, 7, 0, 2 * Math.PI);
-  ctx.fillStyle = 'rgba(255,255,255,0.2)'; ctx.fill();
-
-  // Center dot
+  // Hub centre dot
   ctx.beginPath(); ctx.arc(cx, cy, 5, 0, 2 * Math.PI);
-  ctx.fillStyle = '#fff'; ctx.fill();
-}
-
 function spinWheel() {
   const lastSpin = localStorage.getItem('redshop_lastSpin');
   const today = new Date().toDateString();
@@ -605,17 +707,31 @@ function spinWheel() {
   const startRot = state.wheelRotation;
   const startTime = performance.now();
   const duration = 5000;
+  let lastTickAngle = 0;
+  const tickInterval = 30; // degrees between ticks (gets bigger = slower = more spread)
 
   function easeOut(t) {
-    // Quintic ease-out for satisfying deceleration
     return 1 - Math.pow(1 - t, 5);
   }
 
   function animate(now) {
     const elapsed = now - startTime;
     const t = Math.min(elapsed / duration, 1);
-    state.wheelRotation = startRot + (finalRad - startRot) * easeOut(t);
-    drawWheel(state.wheelRotation);
+    const eased = easeOut(t);
+    state.wheelRotation = startRot + (finalRad - startRot) * eased;
+
+    // Tick sound: fire when wheel crosses a tick mark during fast spin
+    const currentDeg = Math.abs(state.wheelRotation * 180 / Math.PI) % 360;
+    const speed = 1 - t; // speed factor (1 = fast, 0 = stopped)
+    const dynInterval = tickInterval + (1 - speed) * 120; // intervals widen as it slows
+    if (Math.abs(currentDeg - lastTickAngle) >= dynInterval) {
+      lastTickAngle = currentDeg;
+      const pitch = 300 + speed * 900;
+      playTick(pitch, 0.08 + speed * 0.15);
+    }
+
+    // Glow intensity pulses with speed
+    drawWheel(state.wheelRotation, 0.4 + speed * 0.8);
 
     if (t < 1) {
       requestAnimationFrame(animate);
@@ -623,15 +739,17 @@ function spinWheel() {
       state.spinning = false;
       if (canvas) canvas.classList.remove('spinning');
       state.wheelRotation = finalRad % (2 * Math.PI);
+      drawWheel(state.wheelRotation, 1.5); // bright flash on stop
 
       localStorage.setItem('redshop_lastSpin', today);
       localStorage.setItem('redshop_discount', seg.discount);
 
-      // Win glow effect
+      // Win glow + sound
       const glowEl = document.getElementById('wheelWinGlow');
       if (glowEl) glowEl.classList.add('active');
+      playWinSound();
 
-      // Show result
+      // Show result popup
       const resultBox = document.getElementById('spinResultBox');
       const resultText = document.getElementById('spinResultText');
       const resultIcon = document.getElementById('spinResultIcon');
@@ -643,6 +761,7 @@ function spinWheel() {
         if (resultSub) resultSub.textContent = 'Скидка применена к вашему заказу';
         resultBox.classList.remove('hidden');
         launchSparkles(resultBox);
+        launchConfetti();
       }
 
       applyDiscount(seg.discount, false);
@@ -659,22 +778,52 @@ function launchSparkles(container) {
   const sparkleEl = container.querySelector('.spin-sparkles');
   if (!sparkleEl) return;
   sparkleEl.innerHTML = '';
-  const colors = ['#e31e24','#ff6b6b','#ffd700','#ff9500','#ffffff'];
-  for (let i = 0; i < 20; i++) {
+  const colors = ['#ff4400','#ff8800','#ffd700','#cc00ff','#ffffff','#ff3399'];
+  for (let i = 0; i < 24; i++) {
     const s = document.createElement('div');
     s.className = 'sparkle';
     const angle = Math.random() * 360;
-    const dist  = 40 + Math.random() * 80;
+    const dist  = 50 + Math.random() * 100;
     s.style.cssText = `
       left: ${40 + Math.random() * 20}%;
-      top:  ${40 + Math.random() * 20}%;
+      top:  ${30 + Math.random() * 30}%;
       background: ${colors[Math.floor(Math.random() * colors.length)]};
+      width: ${4 + Math.random() * 7}px;
+      height: ${4 + Math.random() * 7}px;
       --dx: ${Math.cos(angle * Math.PI/180) * dist}px;
       --dy: ${Math.sin(angle * Math.PI/180) * dist}px;
-      --dur: ${0.6 + Math.random() * 0.8}s;
-      animation-delay: ${Math.random() * 0.3}s;
+      --dur: ${0.5 + Math.random() * 0.9}s;
+      animation-delay: ${Math.random() * 0.25}s;
     `;
     sparkleEl.appendChild(s);
+  }
+}
+
+// Full-screen confetti shower on win
+function launchConfetti() {
+  const colors = ['#ff4400','#ff8800','#ffd700','#cc00ff','#00ccff','#ff3399','#ffffff','#44ff44'];
+  const modal = document.getElementById('rouletteModal');
+  if (!modal) return;
+
+  for (let i = 0; i < 60; i++) {
+    const piece = document.createElement('div');
+    piece.className = 'confetti-piece';
+    const size  = 5 + Math.random() * 9;
+    const isRect = Math.random() > 0.4;
+    piece.style.cssText = `
+      left: ${Math.random() * 100}%;
+      top: -12px;
+      width: ${size}px;
+      height: ${isRect ? size * 0.5 : size}px;
+      background: ${colors[Math.floor(Math.random() * colors.length)]};
+      border-radius: ${isRect ? '2px' : '50%'};
+      animation-delay: ${Math.random() * 0.8}s;
+      animation-duration: ${1.0 + Math.random() * 1.2}s;
+      --spin: ${Math.random() > 0.5 ? '' : '-'}${360 + Math.random() * 720}deg;
+      --dx: ${(Math.random() - 0.5) * 120}px;
+    `;
+    modal.appendChild(piece);
+    setTimeout(() => piece.remove(), 3000);
   }
 }
 
@@ -885,11 +1034,7 @@ async function savePrice(id) {
   try {
     const fd = new FormData();
     fd.append('price', price);
-    await fetch(`${API}/products/${id}`, {
-      method: 'PUT',
-      headers: { 'x-admin-password': state.adminPassword },
-      body: fd
-    });
+    await adminFormFetch('PUT', `${API}/products/${id}`, fd);
     showToast('Цена обновлена ✓', 'success');
     await loadAdminProducts();
   } catch {
@@ -909,11 +1054,7 @@ photoInput.addEventListener('change', async function() {
   const fd = new FormData();
   fd.append('photo', this.files[0]);
   try {
-    await fetch(`${API}/products/${photoChangeProductId}`, {
-      method: 'PUT',
-      headers: { 'x-admin-password': state.adminPassword },
-      body: fd
-    });
+    await adminFormFetch('PUT', `${API}/products/${photoChangeProductId}`, fd);
     showToast('Фото обновлено ✓', 'success');
     await loadAdminProducts();
   } catch {
@@ -934,11 +1075,7 @@ async function toggleAvailability(id) {
   try {
     const fd = new FormData();
     fd.append('available', !product.available);
-    await fetch(`${API}/products/${id}`, {
-      method: 'PUT',
-      headers: { 'x-admin-password': state.adminPassword },
-      body: fd
-    });
+    await adminFormFetch('PUT', `${API}/products/${id}`, fd);
     showToast(product.available ? 'Товар скрыт' : 'Товар доступен ✓', 'success');
     await loadAdminProducts();
   } catch {
@@ -960,25 +1097,40 @@ async function deleteProduct(id) {
 async function addProduct(e) {
   e.preventDefault();
   const form = e.target;
-  const fd = new FormData(form);
+  const btn = form.querySelector('button[type="submit"]');
 
-  // Use the hidden file input's file
+  // Validate
+  const name  = form.elements['name']?.value?.trim();
+  const price = parseInt(form.elements['price']?.value);
+  if (!name)          { showToast('Введите название', 'error'); return; }
+  if (!price || price < 1) { showToast('Введите цену', 'error'); return; }
+
+  const fd = new FormData();
+  fd.append('name',  name);
+  fd.append('price', price);
+  fd.append('description', form.elements['description']?.value?.trim() || '');
+
   const fileInput = document.getElementById('addProductPhoto');
-  if (fileInput.files[0]) fd.set('photo', fileInput.files[0]);
+  if (fileInput?.files[0]) fd.append('photo', fileInput.files[0]);
+
+  if (btn) { btn.disabled = true; btn.textContent = 'Сохранение...'; }
 
   try {
-    await fetch(`${API}/products`, {
-      method: 'POST',
-      headers: { 'x-admin-password': state.adminPassword },
-      body: fd
-    });
-    showToast('Товар добавлен ✓', 'success');
+    const newProduct = await adminFormFetch('POST', `${API}/products`, fd);
+    showToast(`"${newProduct.name}" добавлен ✓`, 'success');
     form.reset();
-    document.getElementById('addProductPhotoPreview').textContent = '📷';
-    document.getElementById('addProductPhotoName').textContent = 'Выберите фото';
+    if (fileInput) fileInput.value = '';
+    const preview = document.getElementById('addProductPhotoPreview');
+    const photoName = document.getElementById('addProductPhotoName');
+    if (preview) preview.textContent = '📷';
+    if (photoName) photoName.textContent = 'Выберите фото';
+    // Refresh both admin list and shop catalog
     await loadAdminProducts();
+    await loadProducts();
   } catch (err) {
-    showToast('Ошибка добавления: ' + err.message, 'error');
+    showToast('Ошибка: ' + err.message, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '➕ Добавить товар'; }
   }
 }
 
