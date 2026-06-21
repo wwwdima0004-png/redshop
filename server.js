@@ -382,15 +382,53 @@ app.get('/api/users', requireAdmin, (req, res) => {
 // ─── Telegram Bot ─────────────────────────────────────────────────────────────
 
 let bot = null;
+let botRestartTimer = null;
 
-function initBot() {
+// Сбрасывает pending updates чтобы убрать конфликтующий polling другого экземпляра
+function clearPendingUpdates() {
+  return new Promise((resolve) => {
+    const body = JSON.stringify({ timeout: 0, offset: -1 });
+    const options = {
+      hostname: 'api.telegram.org',
+      path: `/bot${BOT_TOKEN}/getUpdates`,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }
+    };
+    const req = https.request(options, res => {
+      res.resume();
+      res.on('end', resolve);
+    });
+    req.on('error', () => resolve());
+    req.setTimeout(5000, () => { req.destroy(); resolve(); });
+    req.write(body);
+    req.end();
+  });
+}
+
+async function initBot(retryCount = 0) {
   if (!BOT_TOKEN || BOT_TOKEN === 'your_bot_token_here') {
     console.warn('⚠️  BOT_TOKEN не задан. Бот не запущен. Установите его в .env файле.');
     return;
   }
 
+  // Остановить предыдущий экземпляр если есть
+  if (bot) {
+    try { await bot.stopPolling(); } catch {}
+    bot = null;
+  }
+
+  // Сбросить накопившиеся updates (освобождает сессию от конкурирующего polling)
+  await clearPendingUpdates();
+  await new Promise(r => setTimeout(r, 1500));
+
   try {
-    bot = new TelegramBot(BOT_TOKEN, { polling: true });
+    bot = new TelegramBot(BOT_TOKEN, {
+      polling: {
+        interval: 300,
+        autoStart: true,
+        params: { timeout: 10 }
+      }
+    });
 
     bot.on('message', async (msg) => {
       const chatId = msg.chat.id;
@@ -494,16 +532,38 @@ function initBot() {
       }
     });
 
-    bot.on('polling_error', (err) => {
-      console.error('Bot polling error:', err.message);
+    bot.on('polling_error', async (err) => {
+      const code = err.code || (err.response && err.response.statusCode);
+
+      // 409 Conflict — другой экземпляр бота уже ведёт polling
+      if (code === 409 || String(err.message).includes('409')) {
+        const delay = Math.min(5000 + retryCount * 5000, 60000);
+        console.warn(`⚠️  Бот: 409 Conflict — другой экземпляр активен. Перезапуск через ${delay / 1000}с...`);
+        try { await bot.stopPolling(); } catch {}
+        bot = null;
+        clearTimeout(botRestartTimer);
+        botRestartTimer = setTimeout(() => initBot(retryCount + 1), delay);
+        return;
+      }
+
+      // 401 Unauthorized — неверный токен, не перезапускать
+      if (code === 401 || String(err.message).includes('401')) {
+        console.error('❌ Бот: 401 Unauthorized — проверьте BOT_TOKEN в .env');
+        return;
+      }
+
+      console.error(`Бот polling error [${code || 'ERR'}]: ${err.message}`);
     });
 
     // Set menu button to open Mini App
     setBotMenuButton();
 
-    console.log('✅ Telegram бот запущен');
+    console.log(`✅ Telegram бот запущен${retryCount > 0 ? ` (попытка #${retryCount + 1})` : ''}`);
   } catch (err) {
     console.error('Ошибка запуска бота:', err.message);
+    const delay = Math.min(10000 + retryCount * 5000, 60000);
+    clearTimeout(botRestartTimer);
+    botRestartTimer = setTimeout(() => initBot(retryCount + 1), delay);
   }
 }
 
@@ -517,3 +577,15 @@ app.listen(PORT, () => {
   console.log(`🌐 URL: http://localhost:${PORT}`);
   console.log(`📱 Mini App: ${WEBAPP_URL}`);
 });
+
+// Graceful shutdown — останавливаем polling перед выходом
+async function shutdown(signal) {
+  console.log(`\n${signal} получен, останавливаем бот...`);
+  clearTimeout(botRestartTimer);
+  if (bot) {
+    try { await bot.stopPolling(); } catch {}
+  }
+  process.exit(0);
+}
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));
