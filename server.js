@@ -3,6 +3,8 @@ const express = require('express');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const https = require('https');
+const crypto = require('crypto');
 const cors = require('cors');
 const TelegramBot = require('node-telegram-bot-api');
 
@@ -54,6 +56,57 @@ function defaultProducts() {
   ];
 }
 
+// ─── Telegram initData verification ──────────────────────────────────────────
+
+function verifyTelegramInitData(initData) {
+  try {
+    const params = new URLSearchParams(initData);
+    const hash = params.get('hash');
+    if (!hash || !BOT_TOKEN || BOT_TOKEN === 'your_bot_token_here') return false;
+    params.delete('hash');
+    const dataCheckString = [...params.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([k, v]) => `${k}=${v}`)
+      .join('\n');
+    const secretKey = crypto.createHmac('sha256', 'WebAppData').update(BOT_TOKEN).digest();
+    const calculatedHash = crypto.createHmac('sha256', secretKey).update(dataCheckString).digest('hex');
+    return calculatedHash === hash;
+  } catch { return false; }
+}
+
+// ─── Set bot menu button ──────────────────────────────────────────────────────
+
+function setBotMenuButton() {
+  if (!BOT_TOKEN || BOT_TOKEN === 'your_bot_token_here') return;
+  const body = JSON.stringify({
+    menu_button: {
+      type: 'web_app',
+      text: '🛍 Открыть магазин',
+      web_app: { url: WEBAPP_URL }
+    }
+  });
+  const options = {
+    hostname: 'api.telegram.org',
+    path: `/bot${BOT_TOKEN}/setChatMenuButton`,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }
+  };
+  const req = https.request(options, res => {
+    let data = '';
+    res.on('data', d => data += d);
+    res.on('end', () => {
+      try {
+        const result = JSON.parse(data);
+        if (result.ok) console.log('✅ Кнопка меню бота установлена →', WEBAPP_URL);
+        else console.warn('⚠️  Кнопка меню:', result.description);
+      } catch {}
+    });
+  });
+  req.on('error', err => console.warn('⚠️  setBotMenuButton:', err.message));
+  req.write(body);
+  req.end();
+}
+
 // ─── Multer (file uploads) ────────────────────────────────────────────────────
 
 const storage = multer.diskStorage({
@@ -79,16 +132,32 @@ app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Admin auth middleware
+// Admin auth middleware — принимает: пароль (legacy), Telegram initData (основной), userId (dev)
 function requireAdmin(req, res, next) {
+  // 1. Legacy password (backward compat)
   const pass = req.headers['x-admin-password'];
-  if (ADMIN_PASSWORDS.includes(pass)) return next();
-  res.status(401).json({ error: 'Неверный пароль' });
+  if (pass && ADMIN_PASSWORDS.includes(pass)) return next();
+
+  // 2. Telegram initData (cryptographic verification)
+  const initData = req.headers['x-telegram-init-data'];
+  if (initData && verifyTelegramInitData(initData)) {
+    try {
+      const params = new URLSearchParams(initData);
+      const user = JSON.parse(decodeURIComponent(params.get('user') || '{}'));
+      if (ADMIN_IDS.includes(user.id)) return next();
+    } catch {}
+  }
+
+  // 3. Simple userId header (for dev/non-TG context when initData not available)
+  const userId = parseInt(req.headers['x-admin-userid'] || '0');
+  if (!isNaN(userId) && userId > 0 && ADMIN_IDS.includes(userId)) return next();
+
+  res.status(401).json({ error: 'Unauthorized' });
 }
 
 // ─── API Routes ───────────────────────────────────────────────────────────────
 
-// Auth
+// Auth (legacy password)
 app.post('/api/auth', (req, res) => {
   const { password } = req.body;
   if (ADMIN_PASSWORDS.includes(password)) {
@@ -96,6 +165,28 @@ app.post('/api/auth', (req, res) => {
   } else {
     res.status(401).json({ error: 'Неверный пароль' });
   }
+});
+
+// Check admin by Telegram ID / initData
+app.get('/api/check-admin', (req, res) => {
+  const userId = parseInt(req.query.userId || '0');
+  if (!isNaN(userId) && userId > 0 && ADMIN_IDS.includes(userId)) {
+    return res.json({ isAdmin: true });
+  }
+  res.json({ isAdmin: false });
+});
+
+// Check admin via initData (POST, cryptographically verified)
+app.post('/api/check-admin', (req, res) => {
+  const { initData } = req.body;
+  if (initData && verifyTelegramInitData(initData)) {
+    try {
+      const params = new URLSearchParams(initData);
+      const user = JSON.parse(decodeURIComponent(params.get('user') || '{}'));
+      if (ADMIN_IDS.includes(user.id)) return res.json({ isAdmin: true, userId: user.id });
+    } catch {}
+  }
+  res.json({ isAdmin: false });
 });
 
 // Products (public)
@@ -406,6 +497,9 @@ function initBot() {
     bot.on('polling_error', (err) => {
       console.error('Bot polling error:', err.message);
     });
+
+    // Set menu button to open Mini App
+    setBotMenuButton();
 
     console.log('✅ Telegram бот запущен');
   } catch (err) {

@@ -16,7 +16,10 @@ const state = {
   products: [],
   cart: [],        // [{id, name, price, photo, qty}]
   discount: 0,
-  adminPassword: null,
+  adminPassword: null,       // legacy (kept for backward compat)
+  telegramInitData: null,    // Telegram initData string (cryptographic)
+  adminUserId: null,         // verified admin Telegram user ID
+  isAdmin: false,
   currentAdminTab: 'products',
   currentChatUserId: null,
   ordersFilter: 'all',
@@ -32,8 +35,10 @@ async function api(method, endpoint, body, adminRequired = false) {
     method,
     headers: { 'Content-Type': 'application/json' }
   };
-  if (adminRequired && state.adminPassword) {
-    opts.headers['x-admin-password'] = state.adminPassword;
+  if (adminRequired) {
+    if (state.adminPassword)    opts.headers['x-admin-password']       = state.adminPassword;
+    if (state.telegramInitData) opts.headers['x-telegram-init-data']   = state.telegramInitData;
+    if (state.adminUserId)      opts.headers['x-admin-userid']         = String(state.adminUserId);
   }
   if (body && !(body instanceof FormData)) {
     opts.body = JSON.stringify(body);
@@ -81,6 +86,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   await loadProducts();
   checkSpinStatus();
   checkExistingDiscount();
+  initAdminCheck(); // Check if current user is admin by Telegram ID
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -289,37 +295,71 @@ async function checkout() {
     finalTotal: final
   };
 
-  // If Telegram Web App is available, use sendData
-  if (tg && tg.sendData) {
+  // Close cart, reset state
+  closeModal('cartModal');
+
+  // If Telegram Web App is available, use sendData (bot receives the order)
+  if (tg && tg.sendData && tg.initDataUnsafe?.user) {
     try {
       tg.sendData(JSON.stringify(orderData));
-      state.cart = [];
-      state.discount = 0;
-      localStorage.removeItem('redshop_discount');
-      updateCartUI();
-      closeModal('cartModal');
-      showToast('Заказ отправлен! ✓', 'success');
     } catch {
-      // Fallback to API
+      // sendData failed — use API fallback
       await submitOrderViaAPI(orderData);
     }
+    // Reset cart after sendData
+    const savedCart = [...state.cart];
+    state.cart = [];
+    state.discount = 0;
+    localStorage.removeItem('redshop_discount');
+    updateCartUI();
+    showOrderSuccess(orderData, savedCart);
   } else {
-    // Dev mode — use API directly
+    // Dev mode or no TG context — use API directly
     await submitOrderViaAPI(orderData);
+    const savedCart = [...state.cart];
+    state.cart = [];
+    state.discount = 0;
+    localStorage.removeItem('redshop_discount');
+    updateCartUI();
+    showOrderSuccess(orderData, savedCart);
   }
 }
 
 async function submitOrderViaAPI(orderData) {
   try {
-    const order = await api('POST', '/orders', orderData);
-    state.cart = [];
-    state.discount = 0;
-    localStorage.removeItem('redshop_discount');
-    updateCartUI();
-    closeModal('cartModal');
-    showToast(`Заказ #${order.id} принят! ✓`, 'success');
+    await api('POST', '/orders', orderData);
   } catch (err) {
-    showToast('Ошибка при оформлении заказа', 'error');
+    console.error('Order API error:', err);
+  }
+}
+
+function showOrderSuccess(orderData, cartItems) {
+  // Build order summary
+  const infoEl = document.getElementById('successOrderInfo');
+  if (infoEl && cartItems && cartItems.length > 0) {
+    const lines = cartItems.map(c => `• ${c.name} ×${c.qty} — ${c.price * c.qty} сом`).join('<br>');
+    const discountLine = orderData.discount > 0
+      ? `<br><span style="color:#4ade80">🎁 Скидка: −${orderData.discount} сом</span>` : '';
+    infoEl.innerHTML = `${lines}${discountLine}<br><strong style="color:#fff">Итого: ${orderData.finalTotal} сом</strong>`;
+  }
+
+  // Reset success animation
+  const checkmark = document.getElementById('successCheckmark');
+  if (checkmark) {
+    checkmark.style.animation = 'none';
+    void checkmark.offsetHeight; // reflow
+    checkmark.style.animation = '';
+  }
+
+  openModal('orderSuccessModal');
+}
+
+function openBotChat() {
+  const botUrl = 'https://t.me/Red1shopbot';
+  if (tg?.openTelegramLink) {
+    tg.openTelegramLink(botUrl);
+  } else {
+    window.open(botUrl, '_blank');
   }
 }
 
@@ -327,10 +367,14 @@ async function submitOrderViaAPI(orderData) {
 // ROULETTE
 // ═══════════════════════════════════════════════════════════════
 
+// ═══════════════════════════════════════════════════════════════
+// ROULETTE — Beautiful redesign
+// ═══════════════════════════════════════════════════════════════
+
 const SEGMENTS = [
-  { label: '50 сом',  discount: 50,  degrees: 270, color: '#e31e24', textColor: '#fff' },
-  { label: '100 сом', discount: 100, degrees: 54,  color: '#8b0000', textColor: '#fff' },
-  { label: '150 сом', discount: 150, degrees: 36,  color: '#ff6b6b', textColor: '#fff' }
+  { label: '50',  sub: 'сом', discount: 50,  degrees: 270, dark: '#7a0000', mid: '#cc1111', light: '#e31e24', textDark: false },
+  { label: '100', sub: 'сом', discount: 100, degrees: 54,  dark: '#1a1a1a', mid: '#2a2a2a', light: '#3a3a3a', textDark: false },
+  { label: '150', sub: 'сом', discount: 150, degrees: 36,  dark: '#cccccc', mid: '#f0f0f0', light: '#ffffff', textDark: true  }
 ];
 
 function checkSpinStatus() {
@@ -365,74 +409,160 @@ function drawWheel(rotation) {
   const canvas = document.getElementById('wheelCanvas');
   if (!canvas) return;
   const ctx = canvas.getContext('2d');
-  const cx = canvas.width / 2;
-  const cy = canvas.height / 2;
-  const radius = Math.min(cx, cy) - 8;
+  const W = canvas.width, H = canvas.height;
+  const cx = W / 2, cy = H / 2;
+  const R = Math.min(cx, cy) - 10;
 
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.clearRect(0, 0, W, H);
+
+  // Outer ambient glow
+  const glow = ctx.createRadialGradient(cx, cy, R * 0.6, cx, cy, R + 14);
+  glow.addColorStop(0, 'transparent');
+  glow.addColorStop(0.7, 'rgba(227,30,36,0.08)');
+  glow.addColorStop(1,   'rgba(227,30,36,0.22)');
+  ctx.beginPath(); ctx.arc(cx, cy, R + 14, 0, 2 * Math.PI);
+  ctx.fillStyle = glow; ctx.fill();
+
   ctx.save();
   ctx.translate(cx, cy);
   ctx.rotate(rotation);
 
-  let startAngle = -Math.PI / 2; // Start from top (12 o'clock)
+  let startAngle = -Math.PI / 2; // 12 o'clock
 
-  SEGMENTS.forEach((seg, i) => {
-    const segAngle = (seg.degrees / 360) * 2 * Math.PI;
+  SEGMENTS.forEach((seg) => {
+    const angle = (seg.degrees / 360) * 2 * Math.PI;
+    const midAngle = startAngle + angle / 2;
 
-    // Sector
+    // Gradient fill (light near pointer edge → dark at rim)
+    const gx1 = Math.cos(midAngle) * R * 0.15, gy1 = Math.sin(midAngle) * R * 0.15;
+    const gx2 = Math.cos(midAngle) * R * 0.95, gy2 = Math.sin(midAngle) * R * 0.95;
+    const grad = ctx.createLinearGradient(gx1, gy1, gx2, gy2);
+    grad.addColorStop(0,    seg.light);
+    grad.addColorStop(0.45, seg.mid);
+    grad.addColorStop(1,    seg.dark);
+
     ctx.beginPath();
     ctx.moveTo(0, 0);
-    ctx.arc(0, 0, radius, startAngle, startAngle + segAngle);
+    ctx.arc(0, 0, R, startAngle, startAngle + angle);
     ctx.closePath();
-    ctx.fillStyle = seg.color;
+    ctx.fillStyle = grad;
     ctx.fill();
 
-    // Sector border
-    ctx.strokeStyle = '#000';
-    ctx.lineWidth = 2;
+    // Divider lines
+    ctx.strokeStyle = 'rgba(0,0,0,0.9)';
+    ctx.lineWidth = 2.5;
     ctx.stroke();
 
-    // Label
-    const midAngle = startAngle + segAngle / 2;
-    const lx = Math.cos(midAngle) * radius * 0.62;
-    const ly = Math.sin(midAngle) * radius * 0.62;
+    // Inner shimmer highlight
+    const shim = ctx.createLinearGradient(
+      Math.cos(startAngle) * 12, Math.sin(startAngle) * 12,
+      Math.cos(startAngle + angle) * 12, Math.sin(startAngle + angle) * 12
+    );
+    shim.addColorStop(0, 'rgba(255,255,255,0.18)');
+    shim.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.arc(0, 0, R * 0.42, startAngle, startAngle + angle);
+    ctx.closePath();
+    ctx.fillStyle = shim;
+    ctx.fill();
+
+    // ── Text ──
+    const tx = Math.cos(midAngle) * R * 0.63;
+    const ty = Math.sin(midAngle) * R * 0.63;
+    const textCol   = seg.textDark ? '#111111' : '#ffffff';
+    const shadowCol = seg.textDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.8)';
 
     ctx.save();
-    ctx.translate(lx, ly);
+    ctx.translate(tx, ty);
     ctx.rotate(midAngle + Math.PI / 2);
-    ctx.fillStyle = seg.textColor;
-    ctx.font = `bold ${seg.degrees > 100 ? 16 : 13}px Inter, Arial`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(seg.label, 0, 0);
-    ctx.restore();
 
-    startAngle += segAngle;
+    const bigFont = seg.degrees >= 200 ? 28 : seg.degrees >= 50 ? 22 : 17;
+    const subFont = seg.degrees >= 200 ? 13 : seg.degrees >= 50 ? 11 : 9;
+    const bigOff  = seg.degrees >= 200 ? -9  : -7;
+    const subOff  = seg.degrees >= 200 ?  12 : seg.degrees >= 50 ? 10 : 8;
+
+    ctx.shadowColor = shadowCol; ctx.shadowBlur = 6;
+    ctx.fillStyle = textCol;
+    ctx.font = `900 ${bigFont}px Inter, Arial, sans-serif`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(seg.label, 0, bigOff);
+
+    ctx.font = `700 ${subFont}px Inter, Arial, sans-serif`;
+    ctx.shadowBlur = 2;
+    ctx.fillStyle = seg.textDark ? 'rgba(0,0,0,0.65)' : 'rgba(255,255,255,0.82)';
+    ctx.fillText(seg.sub, 0, subOff);
+
+    ctx.restore();
+    startAngle += angle;
   });
 
-  // Outer ring
-  ctx.beginPath();
-  ctx.arc(0, 0, radius, 0, 2 * Math.PI);
-  ctx.strokeStyle = 'rgba(227,30,36,0.5)';
-  ctx.lineWidth = 3;
-  ctx.stroke();
+  // Tick marks
+  for (let deg = 0; deg < 360; deg += 6) {
+    const rad = deg * Math.PI / 180;
+    const major = deg % 30 === 0;
+    const len = major ? 8 : 4;
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(rad) * (R - len), Math.sin(rad) * (R - len));
+    ctx.lineTo(Math.cos(rad) * R,         Math.sin(rad) * R);
+    ctx.strokeStyle = major ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.15)';
+    ctx.lineWidth = major ? 2 : 1;
+    ctx.stroke();
+  }
 
-  // Center circle
-  ctx.beginPath();
-  ctx.arc(0, 0, 22, 0, 2 * Math.PI);
-  ctx.fillStyle = '#0a0a0a';
-  ctx.fill();
-  ctx.strokeStyle = '#e31e24';
-  ctx.lineWidth = 3;
-  ctx.stroke();
-
-  // Center dot
-  ctx.beginPath();
-  ctx.arc(0, 0, 6, 0, 2 * Math.PI);
-  ctx.fillStyle = '#e31e24';
-  ctx.fill();
+  // Diamond markers at sector boundaries
+  let bAngle = -Math.PI / 2;
+  SEGMENTS.forEach(seg => {
+    const dx = Math.cos(bAngle) * (R + 1);
+    const dy = Math.sin(bAngle) * (R + 1);
+    ctx.save();
+    ctx.translate(dx, dy);
+    ctx.rotate(bAngle);
+    ctx.beginPath();
+    ctx.moveTo(0,-5); ctx.lineTo(3,0); ctx.lineTo(0,5); ctx.lineTo(-3,0);
+    ctx.closePath();
+    ctx.fillStyle = '#fff';
+    ctx.fill();
+    ctx.restore();
+    bAngle += (seg.degrees / 360) * 2 * Math.PI;
+  });
 
   ctx.restore();
+
+  // Outer border ring
+  ctx.beginPath(); ctx.arc(cx, cy, R, 0, 2 * Math.PI);
+  ctx.strokeStyle = '#e31e24'; ctx.lineWidth = 4; ctx.stroke();
+
+  // Metallic sheen ring
+  const metal = ctx.createLinearGradient(cx - R, cy - R, cx + R, cy + R);
+  metal.addColorStop(0,   'rgba(255,255,255,0.25)');
+  metal.addColorStop(0.5, 'rgba(255,255,255,0.04)');
+  metal.addColorStop(1,   'rgba(255,255,255,0.18)');
+  ctx.beginPath(); ctx.arc(cx, cy, R + 2, 0, 2 * Math.PI);
+  ctx.strokeStyle = metal; ctx.lineWidth = 3; ctx.stroke();
+
+  // Hub shadow
+  ctx.shadowColor = 'rgba(0,0,0,0.7)'; ctx.shadowBlur = 14;
+  ctx.beginPath(); ctx.arc(cx, cy, 28, 0, 2 * Math.PI);
+  ctx.fillStyle = '#0a0a0a'; ctx.fill();
+  ctx.shadowBlur = 0;
+
+  // Hub gradient fill
+  const hub = ctx.createRadialGradient(cx - 5, cy - 5, 2, cx, cy, 24);
+  hub.addColorStop(0, '#ff5555'); hub.addColorStop(0.6, '#e31e24'); hub.addColorStop(1, '#7a0000');
+  ctx.beginPath(); ctx.arc(cx, cy, 24, 0, 2 * Math.PI);
+  ctx.fillStyle = hub; ctx.fill();
+
+  ctx.beginPath(); ctx.arc(cx, cy, 24, 0, 2 * Math.PI);
+  ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.lineWidth = 2; ctx.stroke();
+
+  // Hub highlight
+  ctx.beginPath(); ctx.arc(cx - 6, cy - 6, 7, 0, 2 * Math.PI);
+  ctx.fillStyle = 'rgba(255,255,255,0.2)'; ctx.fill();
+
+  // Center dot
+  ctx.beginPath(); ctx.arc(cx, cy, 5, 0, 2 * Math.PI);
+  ctx.fillStyle = '#fff'; ctx.fill();
 }
 
 function spinWheel() {
@@ -446,91 +576,109 @@ function spinWheel() {
   if (state.spinning) return;
 
   state.spinning = true;
+  const canvas = document.getElementById('wheelCanvas');
+  if (canvas) canvas.classList.add('spinning');
   document.getElementById('spinBtn').disabled = true;
   document.getElementById('spinResultBox')?.classList.add('hidden');
+  document.getElementById('wheelWinGlow')?.classList.remove('active');
 
-  // Determine result with weighted probability
+  // Weighted probability
   const rand = Math.random() * 100;
   let resultIdx;
-  if (rand < 75) resultIdx = 0;      // 50 сом (75%)
-  else if (rand < 90) resultIdx = 1; // 100 сом (15%)
-  else resultIdx = 2;                 // 150 сом (10%)
+  if (rand < 75) resultIdx = 0;
+  else if (rand < 90) resultIdx = 1;
+  else resultIdx = 2;
 
   const seg = SEGMENTS[resultIdx];
 
-  // Calculate cumulative start angles (in degrees from top)
-  const cumulative = [];
+  // Cumulative angles (degrees from 12 o'clock, clockwise)
+  const cumDeg = [];
   let cum = 0;
-  SEGMENTS.forEach((s, i) => {
-    cumulative.push(cum);
-    cum += s.degrees;
-  });
+  SEGMENTS.forEach(s => { cumDeg.push(cum); cum += s.degrees; });
 
-  // To show segment i at top, we rotate the wheel so that a random point
-  // within that segment appears under the pointer.
-  const segStart = cumulative[resultIdx];
-  const segEnd = segStart + seg.degrees;
-  // Pick random point within segment (avoid edges for clarity)
-  const targetDeg = segStart + seg.degrees * (0.2 + Math.random() * 0.6);
-
-  // The wheel rotation needed: to bring `targetDeg` to top (0),
-  // rotate clockwise by (360 - targetDeg), which in canvas terms is:
-  // rotate by -(targetDeg) radians (canvas rotates CCW for negative)
-  const extraSpins = 5 + Math.floor(Math.random() * 3);
+  // Pick a random point inside the winning segment
+  const targetDeg = cumDeg[resultIdx] + seg.degrees * (0.15 + Math.random() * 0.7);
+  const extraSpins = 6 + Math.floor(Math.random() * 3);
   const finalDeg = -(extraSpins * 360 + targetDeg);
   const finalRad = finalDeg * Math.PI / 180;
 
   const startRot = state.wheelRotation;
   const startTime = performance.now();
-  const duration = 4500;
+  const duration = 5000;
 
   function easeOut(t) {
-    return 1 - Math.pow(1 - t, 4);
+    // Quintic ease-out for satisfying deceleration
+    return 1 - Math.pow(1 - t, 5);
   }
 
   function animate(now) {
     const elapsed = now - startTime;
     const t = Math.min(elapsed / duration, 1);
-    const eased = easeOut(t);
-
-    state.wheelRotation = startRot + (finalRad - startRot) * eased;
+    state.wheelRotation = startRot + (finalRad - startRot) * easeOut(t);
     drawWheel(state.wheelRotation);
 
     if (t < 1) {
       requestAnimationFrame(animate);
     } else {
-      // Done
       state.spinning = false;
+      if (canvas) canvas.classList.remove('spinning');
       state.wheelRotation = finalRad % (2 * Math.PI);
 
       localStorage.setItem('redshop_lastSpin', today);
       localStorage.setItem('redshop_discount', seg.discount);
 
+      // Win glow effect
+      const glowEl = document.getElementById('wheelWinGlow');
+      if (glowEl) glowEl.classList.add('active');
+
       // Show result
       const resultBox = document.getElementById('spinResultBox');
       const resultText = document.getElementById('spinResultText');
       const resultIcon = document.getElementById('spinResultIcon');
+      const resultSub  = document.getElementById('spinResultSub');
       if (resultBox) {
-        resultIcon.textContent = seg.discount === 150 ? '🤩' : seg.discount === 100 ? '🎊' : '🎉';
-        resultText.textContent = `Вы выиграли скидку ${seg.label}!`;
+        const emojis = { 50: '🎉', 100: '🎊', 150: '🤩' };
+        resultIcon.textContent = emojis[seg.discount] || '🎉';
+        resultText.textContent = `${seg.discount} сом скидки!`;
+        if (resultSub) resultSub.textContent = 'Скидка применена к вашему заказу';
         resultBox.classList.remove('hidden');
+        launchSparkles(resultBox);
       }
 
-      // Apply discount
-      applyDiscount(seg.discount, true);
-
-      // Show cooldown
+      applyDiscount(seg.discount, false);
       document.getElementById('spinBtn').classList.add('hidden');
       document.getElementById('spinCooldown').classList.remove('hidden');
-
-      showToast(`🎉 Скидка ${seg.label} применена!`, 'success');
+      showToast(`🎉 Скидка ${seg.discount} сом применена!`, 'success');
     }
   }
 
   requestAnimationFrame(animate);
 }
 
-function applyDiscount(amount, notify = false) {
+function launchSparkles(container) {
+  const sparkleEl = container.querySelector('.spin-sparkles');
+  if (!sparkleEl) return;
+  sparkleEl.innerHTML = '';
+  const colors = ['#e31e24','#ff6b6b','#ffd700','#ff9500','#ffffff'];
+  for (let i = 0; i < 20; i++) {
+    const s = document.createElement('div');
+    s.className = 'sparkle';
+    const angle = Math.random() * 360;
+    const dist  = 40 + Math.random() * 80;
+    s.style.cssText = `
+      left: ${40 + Math.random() * 20}%;
+      top:  ${40 + Math.random() * 20}%;
+      background: ${colors[Math.floor(Math.random() * colors.length)]};
+      --dx: ${Math.cos(angle * Math.PI/180) * dist}px;
+      --dy: ${Math.sin(angle * Math.PI/180) * dist}px;
+      --dur: ${0.6 + Math.random() * 0.8}s;
+      animation-delay: ${Math.random() * 0.3}s;
+    `;
+    sparkleEl.appendChild(s);
+  }
+}
+
+function applyDiscount(amount, closeRoulette = false) {
   state.discount = amount;
   const banner = document.getElementById('discountBanner');
   const amountEl = document.getElementById('discountBannerAmount');
@@ -539,7 +687,7 @@ function applyDiscount(amount, notify = false) {
     banner.classList.remove('hidden');
   }
   updateCartUI();
-  if (notify) closeModal('rouletteModal');
+  if (closeRoulette) closeModal('rouletteModal');
 }
 
 function removeDiscount() {
@@ -553,26 +701,68 @@ function removeDiscount() {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// ADMIN AUTH
+// ADMIN AUTH — по Telegram ID (без пароля)
 // ═══════════════════════════════════════════════════════════════
 
-function openAdminLogin() {
-  document.getElementById('adminPasswordInput').value = '';
-  document.getElementById('adminLoginError').classList.add('hidden');
-  openModal('adminLoginModal');
-  setTimeout(() => document.getElementById('adminPasswordInput').focus(), 300);
+async function initAdminCheck() {
+  const userId = tg?.initDataUnsafe?.user?.id;
+  const initData = tg?.initData;
+
+  // Primary: cryptographic initData verification via server
+  if (initData) {
+    try {
+      const res = await fetch('/api/check-admin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ initData })
+      });
+      const data = await res.json();
+      if (data.isAdmin) {
+        state.isAdmin = true;
+        state.adminUserId = data.userId || userId;
+        state.telegramInitData = initData;
+        showAdminButton();
+        return;
+      }
+    } catch {}
+  }
+
+  // Fallback: simple userId check (works in dev without full TG context)
+  if (userId) {
+    try {
+      const res = await fetch(`/api/check-admin?userId=${userId}`);
+      const data = await res.json();
+      if (data.isAdmin) {
+        state.isAdmin = true;
+        state.adminUserId = userId;
+        state.telegramInitData = initData || '';
+        showAdminButton();
+      }
+    } catch {}
+  }
 }
 
-async function loginAdmin() {
-  const pass = document.getElementById('adminPasswordInput').value.trim();
-  if (!pass) return;
+function showAdminButton() {
+  const btn = document.getElementById('adminBtn');
+  if (btn) {
+    btn.classList.remove('hidden');
+    btn.style.animation = 'badgePop 0.4s ease';
+  }
+}
 
-  try {
-    await api('POST', '/auth', { password: pass });
-    state.adminPassword = pass;
+function openAdminPanel() {
+  if (!state.isAdmin) return;
+  showAdminPanel();
+}
+
+// Legacy openAdminLogin kept for HTML references
+function openAdminLogin() { openAdminPanel(); }
+
+async function loginAdmin() {
+  if (state.isAdmin) {
     closeModal('adminLoginModal');
     showAdminPanel();
-  } catch {
+  } else {
     document.getElementById('adminLoginError').classList.remove('hidden');
   }
 }

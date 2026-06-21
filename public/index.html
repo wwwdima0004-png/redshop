@@ -28,7 +28,7 @@
         <span class="cart-icon">🛒</span>
         <span class="cart-badge hidden" id="cartBadge">0</span>
       </button>
-      <button class="btn-icon admin-btn" onclick="openAdminLogin()" title="Админ">⚙️</button>
+      <button class="btn-icon admin-btn hidden" onclick="openAdminPanel()" title="Админ" id="adminBtn">⚙️</button>
     </div>
   </header>
 
@@ -124,32 +124,63 @@
       <p class="roulette-desc">Крутите рулетку раз в день и получите скидку на заказ!</p>
 
       <div class="wheel-wrapper">
-        <div class="wheel-pointer">▼</div>
-        <canvas id="wheelCanvas" width="260" height="260"></canvas>
+        <div class="wheel-pointer-wrap">
+          <div class="wheel-pointer-arrow">▼</div>
+        </div>
+        <canvas id="wheelCanvas" width="300" height="300"></canvas>
+        <div class="wheel-win-glow" id="wheelWinGlow"></div>
       </div>
 
       <div class="roulette-legend">
         <div class="legend-item"><span class="legend-dot" style="background:#e31e24"></span>50 сом — 75%</div>
         <div class="legend-item"><span class="legend-dot" style="background:#8b0000"></span>100 сом — 15%</div>
-        <div class="legend-item"><span class="legend-dot" style="background:#ff6b6b"></span>150 сом — 10%</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#f0f0f0;border:1px solid #444"></span>150 сом — 10%</div>
       </div>
 
       <div id="spinResultBox" class="spin-result hidden">
-        <div id="spinResultIcon">🎉</div>
-        <div id="spinResultText"></div>
+        <div class="spin-result-inner">
+          <div id="spinResultIcon" class="spin-result-emoji">🎉</div>
+          <div id="spinResultText" class="spin-result-amount"></div>
+          <div id="spinResultSub" class="spin-result-sub"></div>
+        </div>
+        <div class="spin-sparkles" id="spinSparkles"></div>
       </div>
 
       <button id="spinBtn" class="btn-primary btn-full btn-spin" onclick="spinWheel()">
-        Крутить!
+        🎰 Крутить!
       </button>
       <div id="spinCooldown" class="spin-cooldown hidden">
-        Следующий спин доступен завтра
+        ⏳ Следующий спин доступен завтра
       </div>
     </div>
   </div>
 </div>
 
-<!-- Admin Login Modal -->
+<!-- Order Success Modal -->
+<div id="orderSuccessModal" class="modal-overlay hidden">
+  <div class="modal modal-success">
+    <div class="modal-body success-body">
+      <div class="success-icon-wrap">
+        <div class="success-checkmark" id="successCheckmark">✓</div>
+        <div class="success-ring success-ring-1"></div>
+        <div class="success-ring success-ring-2"></div>
+      </div>
+      <h2 class="success-title">Заказ принят!</h2>
+      <p class="success-desc">
+        Напишите нам в бот <strong>@Red1shopbot</strong> и мы свяжемся с вами в ближайшее время.
+      </p>
+      <div class="success-order-info" id="successOrderInfo"></div>
+      <button class="btn-primary btn-full success-bot-btn" onclick="openBotChat()">
+        💬 Написать в бот @Red1shopbot
+      </button>
+      <button class="btn-outline btn-full" style="margin-top:10px" onclick="closeModal('orderSuccessModal')">
+        Закрыть
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Admin Login Modal (removed password — вход по Telegram ID) -->
 <div id="adminLoginModal" class="modal-overlay hidden" onclick="closeOnOverlay(event, 'adminLoginModal')">
   <div class="modal modal-sm">
     <div class="modal-header">
@@ -157,12 +188,7 @@
       <button class="btn-close" onclick="closeModal('adminLoginModal')">✕</button>
     </div>
     <div class="modal-body">
-      <div class="form-group">
-        <label>Пароль администратора</label>
-        <input type="password" id="adminPasswordInput" class="form-input" placeholder="Введите пароль"
-          onkeydown="if(event.key==='Enter') loginAdmin()">
-      </div>
-      <div id="adminLoginError" class="error-msg hidden">Неверный пароль</div>
+      <div id="adminLoginError" class="error-msg hidden">Доступ запрещён</div>
     </div>
     <div class="modal-footer">
       <button class="btn-primary btn-full" onclick="loginAdmin()">Войти</button>
