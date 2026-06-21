@@ -724,6 +724,9 @@ function drawWheel(rotation, glowIntensity = 1) {
 
   // Hub centre dot
   ctx.beginPath(); ctx.arc(cx, cy, 5, 0, 2 * Math.PI);
+  ctx.fillStyle = '#ff9900'; ctx.fill();
+}
+
 function spinWheel() {
   const lastSpin = localStorage.getItem('redshop_lastSpin');
   const today = new Date().toDateString();
