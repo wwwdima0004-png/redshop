@@ -114,7 +114,9 @@ async function loadProducts(attempt = 1) {
   const grid = document.getElementById('catalog');
   const empty = document.getElementById('catalogEmpty');
 
-  // Show loading state
+  console.log('[RedShop] loadProducts attempt', attempt);
+
+  // Show loading state only on first attempt
   if (attempt === 1) {
     grid.innerHTML = `
       <div class="loading-products" style="grid-column:1/-1;text-align:center;padding:40px 20px;color:#888">
@@ -126,11 +128,26 @@ async function loadProducts(attempt = 1) {
 
   try {
     const data = await api('GET', '/products');
-    // Validate: must be non-empty array
-    if (!Array.isArray(data)) throw new Error('Сервер вернул неверный формат');
+    console.log('[RedShop] /api/products ответ:', data);
+
+    if (!Array.isArray(data)) {
+      console.error('[RedShop] Неверный формат ответа (не массив):', data);
+      throw new Error('Сервер вернул неверный формат');
+    }
+
+    console.log('[RedShop] Товаров получено:', data.length);
     state.products = data;
-    renderCatalog();
+
+    // renderCatalog изолирован — ошибка внутри не сломает retry-логику
+    try {
+      renderCatalog();
+      console.log('[RedShop] renderCatalog завершён, карточек в DOM:', grid.children.length);
+    } catch (renderErr) {
+      console.error('[RedShop] Ошибка внутри renderCatalog:', renderErr);
+      grid.innerHTML = '<div style="padding:20px;color:#e31e24">Ошибка отображения товаров: ' + renderErr.message + '</div>';
+    }
   } catch (err) {
+    console.error('[RedShop] Ошибка загрузки, attempt', attempt, ':', err.message);
     // Render free tier cold start can take 30-50s — retry up to 4 times
     if (attempt < 4) {
       const delay = attempt * 5000; // 5s, 10s, 15s
@@ -158,22 +175,26 @@ function renderCatalog() {
   const grid = document.getElementById('catalog');
   const empty = document.getElementById('catalogEmpty');
   const count = document.getElementById('catalogCount');
+
+  console.log('[RedShop] renderCatalog вызван, state.products:', state.products.length);
+
   const available = state.products.filter(p => p.available);
 
   grid.innerHTML = '';
   count.textContent = `${available.length} вкусов`;
 
   if (state.products.length === 0) {
+    console.log('[RedShop] Нет товаров — показываем empty state');
     empty.classList.remove('hidden');
     return;
   }
   empty.classList.add('hidden');
 
-  state.products.forEach(product => {
+  state.products.forEach((product, i) => {
+    console.log(`[RedShop] Рендер товара #${i + 1}:`, product.id, product.name);
     const card = document.createElement('div');
     card.className = `product-card${!product.available ? ' out-of-stock' : ''}`;
     const inCart = state.cart.some(c => c.id === product.id);
-    // Normalise photo path — ensure it always starts with /
     const photoSrc = product.photo
       ? (product.photo.startsWith('http') ? product.photo : product.photo.startsWith('/') ? product.photo : '/' + product.photo)
       : '/img/placeholder.svg';
@@ -202,6 +223,7 @@ function renderCatalog() {
     `;
     grid.appendChild(card);
   });
+  console.log('[RedShop] renderCatalog: добавлено карточек в DOM:', grid.children.length);
 }
 
 function previewImage(src) {
