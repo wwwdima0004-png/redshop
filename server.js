@@ -580,6 +580,13 @@ async function initBot(retryCount = 0) {
 // ─── Start Server ─────────────────────────────────────────────────────────────
 
 ensureDataFiles();
+
+// Log products count on startup for debugging
+const startupProducts = (() => {
+  try { return JSON.parse(require('fs').readFileSync(require('path').join(__dirname, 'data', 'products.json'), 'utf8')); } catch { return []; }
+})();
+console.log(`📦 Товаров в каталоге: ${startupProducts.length}`);
+
 initBot();
 
 app.listen(PORT, () => {

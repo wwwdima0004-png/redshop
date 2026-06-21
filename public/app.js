@@ -110,12 +110,47 @@ document.addEventListener('DOMContentLoaded', async () => {
 // SHOP
 // ═══════════════════════════════════════════════════════════════
 
-async function loadProducts() {
+async function loadProducts(attempt = 1) {
+  const grid = document.getElementById('catalog');
+  const empty = document.getElementById('catalogEmpty');
+
+  // Show loading state
+  if (attempt === 1) {
+    grid.innerHTML = `
+      <div class="loading-products" style="grid-column:1/-1;text-align:center;padding:40px 20px;color:#888">
+        <div style="font-size:2rem;margin-bottom:10px">⏳</div>
+        <div>Загрузка товаров...</div>
+      </div>`;
+    empty.classList.add('hidden');
+  }
+
   try {
-    state.products = await api('GET', '/products');
+    const data = await api('GET', '/products');
+    // Validate: must be non-empty array
+    if (!Array.isArray(data)) throw new Error('Сервер вернул неверный формат');
+    state.products = data;
     renderCatalog();
   } catch (err) {
-    showToast('Не удалось загрузить товары', 'error');
+    // Render free tier cold start can take 30-50s — retry up to 4 times
+    if (attempt < 4) {
+      const delay = attempt * 5000; // 5s, 10s, 15s
+      grid.innerHTML = `
+        <div class="loading-products" style="grid-column:1/-1;text-align:center;padding:40px 20px;color:#888">
+          <div style="font-size:2rem;margin-bottom:10px">🔄</div>
+          <div>Сервер запускается, подождите...</div>
+          <div style="font-size:0.8rem;margin-top:6px;color:#555">Попытка ${attempt + 1} через ${delay / 1000} сек</div>
+        </div>`;
+      setTimeout(() => loadProducts(attempt + 1), delay);
+    } else {
+      grid.innerHTML = '';
+      empty.classList.remove('hidden');
+      empty.innerHTML = `
+        <div class="empty-icon">⚠️</div>
+        <div>Не удалось загрузить товары</div>
+        <div style="font-size:0.8rem;color:#666;margin-top:6px">${err.message}</div>
+        <button class="btn-outline" style="margin-top:16px" onclick="loadProducts()">Попробовать снова</button>`;
+      showToast('Ошибка загрузки товаров', 'error');
+    }
   }
 }
 
