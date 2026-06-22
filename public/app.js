@@ -202,6 +202,12 @@ function showCategoriesView() {
   renderCategories();
 }
 
+function normalizePhotoSrc(photo) {
+  if (!photo) return '/img/placeholder.svg';
+  if (photo.startsWith('http')) return photo;
+  return photo.startsWith('/') ? photo : '/' + photo;
+}
+
 function renderCategories() {
   const grid = document.getElementById('categoriesView');
   const countEl = document.getElementById('catalogCount');
@@ -221,15 +227,25 @@ function renderCategories() {
   state.categories.forEach(cat => {
     const total = getCategoryProductCount(cat.id);
     const available = state.products.filter(p => p.categoryId === cat.id && p.available).length;
+    const photoSrc = normalizePhotoSrc(cat.photo);
+    const hasRealPhoto = cat.photo && !cat.photo.includes('placeholder');
     const card = document.createElement('div');
     card.className = 'category-card';
     card.onclick = () => openCategory(cat.id);
     card.innerHTML = `
-      <div>
-        <div class="category-card-name">${escapeHtml(cat.name)}</div>
-        <div class="category-card-meta">${available} вкусов${total !== available ? ` · всего ${total}` : ''}</div>
+      <div class="category-card-photo-wrap">
+        ${hasRealPhoto
+          ? `<img class="category-card-photo" src="${photoSrc}" alt="${escapeHtml(cat.name)}" loading="lazy"
+              onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'category-card-photo-placeholder',textContent:'📦'}))">`
+          : `<div class="category-card-photo-placeholder">📦</div>`}
       </div>
-      <span class="category-card-arrow">›</span>
+      <div class="category-card-body">
+        <div>
+          <div class="category-card-name">${escapeHtml(cat.name)}</div>
+          <div class="category-card-meta">${available} вкусов${total !== available ? ` · всего ${total}` : ''}</div>
+        </div>
+        <span class="category-card-arrow">›</span>
+      </div>
     `;
     grid.appendChild(card);
   });
@@ -270,6 +286,7 @@ function renderCatalog() {
     : state.products;
   const available = categoryProducts.filter(p => p.available);
 
+  grid.className = 'catalog-grid flavors-list';
   grid.innerHTML = '';
   count.textContent = `${available.length} вкусов`;
 
@@ -283,37 +300,23 @@ function renderCatalog() {
   empty.classList.add('hidden');
 
   categoryProducts.forEach((product) => {
-    const card = document.createElement('div');
-    card.className = `product-card${!product.available ? ' out-of-stock' : ''}`;
-    card.id = `productCard_${product.id}`;
-    const photoSrc = product.photo
-      ? (product.photo.startsWith('http') ? product.photo : product.photo.startsWith('/') ? product.photo : '/' + product.photo)
-      : '/img/placeholder.svg';
+    const row = document.createElement('div');
+    row.className = `flavor-row${!product.available ? ' out-of-stock' : ''}`;
+    row.id = `productCard_${product.id}`;
 
-    card.innerHTML = `
-      <div class="product-photo-wrap" onclick="previewImage('${photoSrc}')">
-        <div class="img-skeleton" id="skel_${product.id}"></div>
-        <img class="product-photo" src="${photoSrc}" alt="${escapeHtml(product.description || product.name)}"
-          loading="lazy"
-          onload="this.previousElementSibling.style.display='none';this.style.opacity='1'"
-          onerror="this.src='/img/placeholder.svg';this.previousElementSibling.style.display='none';this.style.opacity='1'"
-          style="opacity:0;transition:opacity 0.3s">
-        ${!product.available ? '<div class="out-of-stock-overlay">Нет в наличии</div>' : ''}
-        <div class="product-badge">ВЕЙП</div>
+    row.innerHTML = `
+      <div class="flavor-row-info">
+        <div class="flavor-row-name">${escapeHtml(product.description || product.name)}</div>
+        ${!product.available ? '<div class="category-card-meta">Нет в наличии</div>' : ''}
       </div>
-      <div class="product-info">
-        <div class="product-desc">${escapeHtml(product.description || product.name)}</div>
-      </div>
-      <div class="product-price-footer">
-        ${formatProductPriceHtml(product)}
-      </div>
+      <div class="flavor-row-prices">${formatProductPriceHtml(product)}</div>
       <button class="btn-buy" type="button"
         ${!product.available ? 'disabled' : ''}
         onclick="openBuyModal(${product.id})">
         Купить
       </button>
     `;
-    grid.appendChild(card);
+    grid.appendChild(row);
   });
 }
 
@@ -1220,10 +1223,14 @@ function renderAdminCategories() {
 
   state.categories.forEach(cat => {
     const count = getCategoryProductCount(cat.id);
+    const photoSrc = normalizePhotoSrc(cat.photo);
     const item = document.createElement('div');
     item.className = 'admin-category-item';
     item.id = `adminCategory_${cat.id}`;
     item.innerHTML = `
+      <img class="admin-category-photo" src="${photoSrc}" alt="${escapeHtml(cat.name)}"
+        onclick="changeCategoryPhoto(${cat.id})" title="Нажмите чтобы изменить фото"
+        onerror="this.src='/img/placeholder.svg'">
       <div class="admin-category-name" id="catNameDisplay_${cat.id}">${escapeHtml(cat.name)}</div>
       <span class="admin-category-count">${count} вкус(ов)</span>
       <div id="catEditRow_${cat.id}" class="inline-edit-row hidden">
@@ -1231,6 +1238,7 @@ function renderAdminCategories() {
         <button class="btn-primary btn-sm" onclick="saveCategoryName(${cat.id})">✓</button>
         <button class="btn-sm btn-sm-grey" onclick="cancelCategoryEdit(${cat.id})">✕</button>
       </div>
+      <button class="btn-sm btn-sm-grey" onclick="changeCategoryPhoto(${cat.id})">🖼 Фото</button>
       <button class="btn-sm btn-sm-red" onclick="toggleCategoryEdit(${cat.id})">✏️</button>
       <button class="btn-sm btn-sm-red" onclick="deleteCategory(${cat.id})">🗑</button>
     `;
@@ -1240,19 +1248,43 @@ function renderAdminCategories() {
 
 async function addCategory(e) {
   e.preventDefault();
-  const input = document.getElementById('addCategoryName');
-  const name = input.value.trim();
+  const form = e.target;
+  const name = form.elements['name']?.value?.trim() || document.getElementById('addCategoryName')?.value?.trim();
   if (!name) { showToast('Введите название позиции', 'error'); return; }
+
+  const fd = new FormData();
+  fd.append('name', name);
+  const fileInput = document.getElementById('addCategoryPhoto');
+  if (fileInput?.files[0]) fd.append('photo', fileInput.files[0]);
+
   try {
-    await api('POST', '/categories', { name }, true);
+    await adminFormFetch('POST', `${API}/categories`, fd);
     showToast(`Позиция «${name}» добавлена ✓`, 'success');
-    input.value = '';
+    form.reset();
+    if (fileInput) fileInput.value = '';
+    const preview = document.getElementById('addCategoryPhotoPreview');
+    const photoName = document.getElementById('addCategoryPhotoName');
+    if (preview) preview.textContent = '📷';
+    if (photoName) photoName.textContent = 'Выберите фото (необяз.)';
     await loadAdminProducts();
     if (!state.selectedCategoryId) showCategoriesView();
     else await loadProducts();
   } catch (err) {
     showToast('Ошибка: ' + err.message, 'error');
   }
+}
+
+function previewAddCategoryPhoto(input) {
+  if (!input.files[0]) return;
+  const name = input.files[0].name;
+  document.getElementById('addCategoryPhotoName').textContent =
+    name.length > 20 ? name.slice(0, 20) + '...' : name;
+  const reader = new FileReader();
+  reader.onload = e => {
+    document.getElementById('addCategoryPhotoPreview').innerHTML =
+      `<img src="${e.target.result}" style="width:36px;height:36px;object-fit:cover;border-radius:6px;">`;
+  };
+  reader.readAsDataURL(input.files[0]);
 }
 
 function toggleCategoryEdit(id) {
@@ -1413,7 +1445,7 @@ async function changeProductCategory(id, categoryId) {
   }
 }
 
-// Hidden file input for photo change
+// Hidden file input for product photo change
 let photoChangeProductId = null;
 const photoInput = document.createElement('input');
 photoInput.type = 'file';
@@ -1438,6 +1470,33 @@ photoInput.addEventListener('change', async function() {
 function changeProductPhoto(id) {
   photoChangeProductId = id;
   photoInput.click();
+}
+
+// Hidden file input for category photo change
+let photoChangeCategoryId = null;
+const categoryPhotoInput = document.createElement('input');
+categoryPhotoInput.type = 'file';
+categoryPhotoInput.accept = 'image/*';
+categoryPhotoInput.style.display = 'none';
+document.body.appendChild(categoryPhotoInput);
+categoryPhotoInput.addEventListener('change', async function() {
+  if (!this.files[0] || !photoChangeCategoryId) return;
+  const fd = new FormData();
+  fd.append('photo', this.files[0]);
+  try {
+    await adminFormFetch('PUT', `${API}/categories/${photoChangeCategoryId}`, fd);
+    showToast('Фото позиции обновлено ✓', 'success');
+    await loadAdminProducts();
+  } catch {
+    showToast('Ошибка загрузки фото', 'error');
+  }
+  this.value = '';
+  photoChangeCategoryId = null;
+});
+
+function changeCategoryPhoto(id) {
+  photoChangeCategoryId = id;
+  categoryPhotoInput.click();
 }
 
 async function toggleAvailability(id) {

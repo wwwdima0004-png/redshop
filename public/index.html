@@ -281,16 +281,23 @@
       <!-- Categories (positions) -->
       <div class="card">
         <h4>Позиции (бренды)</h4>
-        <form id="addCategoryForm" onsubmit="addCategory(event)">
+        <form id="addCategoryForm" onsubmit="addCategory(event)" enctype="multipart/form-data">
           <div class="form-row">
             <div class="form-group" style="flex:1">
               <label>Название позиции</label>
-              <input type="text" id="addCategoryName" class="form-input" placeholder="Например: Waka" required>
-            </div>
-            <div class="form-group" style="align-self:flex-end">
-              <button type="submit" class="btn-primary">➕ Добавить позицию</button>
+              <input type="text" id="addCategoryName" name="name" class="form-input" placeholder="Например: Waka" required>
             </div>
           </div>
+          <div class="form-group">
+            <label>Фото позиции</label>
+            <div class="file-upload-area" onclick="document.getElementById('addCategoryPhoto').click()">
+              <div id="addCategoryPhotoPreview" class="file-preview-icon">📷</div>
+              <span id="addCategoryPhotoName">Выберите фото (необяз.)</span>
+            </div>
+            <input type="file" id="addCategoryPhoto" name="photo" accept="image/*" style="display:none"
+              onchange="previewAddCategoryPhoto(this)">
+          </div>
+          <button type="submit" class="btn-primary">➕ Добавить позицию</button>
         </form>
         <div id="adminCategoriesList" class="admin-categories-list"></div>
       </div>

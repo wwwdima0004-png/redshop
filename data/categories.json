@@ -1,5 +1,5 @@
 [
-  { "id": 1, "name": "Waka" },
-  { "id": 2, "name": "Elf Bar" },
-  { "id": 3, "name": "Ева" }
+  { "id": 1, "name": "Waka", "photo": "/img/placeholder.svg" },
+  { "id": 2, "name": "Elf Bar", "photo": "/img/placeholder.svg" },
+  { "id": 3, "name": "Ева", "photo": "/img/placeholder.svg" }
 ]

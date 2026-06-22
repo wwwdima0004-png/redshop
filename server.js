@@ -63,9 +63,9 @@ function ensureDataFiles() {
 
 function defaultCategories() {
   return [
-    { id: 1, name: 'Waka' },
-    { id: 2, name: 'Elf Bar' },
-    { id: 3, name: 'Ева' }
+    { id: 1, name: 'Waka', photo: '/img/placeholder.svg' },
+    { id: 2, name: 'Elf Bar', photo: '/img/placeholder.svg' },
+    { id: 3, name: 'Ева', photo: '/img/placeholder.svg' }
   ];
 }
 
@@ -152,7 +152,8 @@ const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, path.join(__dirname, 'public', 'uploads')),
   filename: (req, file, cb) => {
     const ext = path.extname(file.originalname).toLowerCase();
-    cb(null, `product_${Date.now()}${ext}`);
+    const prefix = req.originalUrl.includes('/categories') ? 'category' : 'product';
+    cb(null, `${prefix}_${Date.now()}${ext}`);
   }
 });
 const upload = multer({
@@ -233,24 +234,31 @@ app.get('/api/categories', (req, res) => {
   res.json(readJSON('categories.json'));
 });
 
-app.post('/api/categories', requireAdmin, (req, res) => {
+app.post('/api/categories', requireAdmin, upload.single('photo'), (req, res) => {
   const name = (req.body.name || '').trim();
   if (!name) return res.status(400).json({ error: 'Укажите название позиции' });
   const categories = readJSON('categories.json');
   const newId = categories.length > 0 ? Math.max(...categories.map(c => c.id)) + 1 : 1;
-  const category = { id: newId, name };
+  const category = {
+    id: newId,
+    name,
+    photo: req.file ? `/uploads/${req.file.filename}` : '/img/placeholder.svg'
+  };
   categories.push(category);
   writeJSON('categories.json', categories);
   res.json(category);
 });
 
-app.put('/api/categories/:id', requireAdmin, (req, res) => {
+app.put('/api/categories/:id', requireAdmin, upload.single('photo'), (req, res) => {
   const categories = readJSON('categories.json');
   const idx = categories.findIndex(c => c.id === parseInt(req.params.id));
   if (idx === -1) return res.status(404).json({ error: 'Позиция не найдена' });
-  const name = (req.body.name || '').trim();
-  if (!name) return res.status(400).json({ error: 'Укажите название позиции' });
-  categories[idx].name = name;
+  if (req.body.name !== undefined) {
+    const name = (req.body.name || '').trim();
+    if (!name) return res.status(400).json({ error: 'Укажите название позиции' });
+    categories[idx].name = name;
+  }
+  if (req.file) categories[idx].photo = `/uploads/${req.file.filename}`;
   writeJSON('categories.json', categories);
   res.json(categories[idx]);
 });
