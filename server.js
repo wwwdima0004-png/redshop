@@ -380,6 +380,10 @@ app.post('/api/orders', (req, res) => {
     ADMIN_IDS.forEach(id => bot.sendMessage(id, text, { parse_mode: 'Markdown' }).catch(() => {}));
   }
 
+  if (bot && order.userId) {
+    sendWelcomeMessage(order.userId).catch(() => {});
+  }
+
   res.json(order);
 });
 
@@ -494,6 +498,37 @@ app.get('/api/users', requireAdmin, (req, res) => {
 let bot = null;
 let botRestartTimer = null;
 
+const WELCOME_TEXT =
+  'Добро пожаловать в Red Shop! 🛒\n' +
+  'Как заказать:\n' +
+  '1. Выбери устройство и вкус в приложении\n' +
+  '2. Нажми «Купить»\n' +
+  '3. Укажи телефон и адрес\n\n' +
+  'Заказ оформляется здесь, в боте.\n' +
+  'Если есть вопросы — напиши менеджеру 👇';
+
+function getWelcomeKeyboard() {
+  return {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: '🛍️ Открыть магазин', web_app: { url: WEBAPP_URL } }],
+        [{ text: '💬 Написать менеджеру', url: 'https://t.me/roomsellerr' }]
+      ]
+    }
+  };
+}
+
+function sendWelcomeMessage(chatId) {
+  if (!bot) return Promise.resolve();
+  return bot.sendMessage(chatId, WELCOME_TEXT, getWelcomeKeyboard());
+}
+
+function isStartCommand(text) {
+  if (!text || typeof text !== 'string') return false;
+  const cmd = text.trim().split(/\s+/)[0].split('@')[0];
+  return cmd === '/start';
+}
+
 // Сбрасывает pending updates чтобы убрать конфликтующий polling другого экземпляра
 function clearPendingUpdates() {
   return new Promise((resolve) => {
@@ -559,23 +594,9 @@ async function initBot(retryCount = 0) {
         writeJSON('users.json', users);
       }
 
-      // Handle /start
-      if (msg.text === '/start') {
-        bot.sendMessage(chatId,
-          '🔴 *Добро пожаловать в Red Shop!*\n\n' +
-          'Как заказать: выбери устройство и вкус в приложении, нажми «Купить», укажи телефон и адрес.\n\n' +
-          'Заказ оформляется через этого бота.\n\n' +
-          'Если есть вопросы — напиши менеджеру: @roomsellerr',
-          {
-            parse_mode: 'Markdown',
-            reply_markup: {
-              inline_keyboard: [
-                [{ text: '🛍️ Открыть магазин', web_app: { url: WEBAPP_URL } }],
-                [{ text: '💬 Написать менеджеру', url: 'https://t.me/roomsellerr' }]
-              ]
-            }
-          }
-        );
+      // Handle /start (включая /start welcome при переходе из Mini App)
+      if (isStartCommand(msg.text)) {
+        await sendWelcomeMessage(chatId);
         return;
       }
 

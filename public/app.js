@@ -452,7 +452,10 @@ async function submitBuyOrder(e) {
 }
 
 function redirectToBot() {
-  const botUrl = 'https://t.me/Red1shopbot';
+  const hasTgUser = !!(tg?.initDataUnsafe?.user?.id);
+  const botUrl = hasTgUser
+    ? 'https://t.me/Red1shopbot'
+    : 'https://t.me/Red1shopbot?start=welcome';
   if (tg && typeof tg.openTelegramLink === 'function') {
     tg.openTelegramLink(botUrl);
     setTimeout(() => { try { tg.close(); } catch {} }, 350);
