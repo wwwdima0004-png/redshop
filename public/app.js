@@ -7,8 +7,8 @@ const tg = window.Telegram?.WebApp;
 if (tg) {
   tg.ready();
   tg.expand();
-  tg.setHeaderColor('#0a0a0a');
-  tg.setBackgroundColor('#0a0a0a');
+  tg.setHeaderColor('#140808');
+  tg.setBackgroundColor('#140808');
 }
 
 // ─── State ───────────────────────────────────────────────────────────────────
