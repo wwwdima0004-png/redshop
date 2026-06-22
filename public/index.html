@@ -163,6 +163,34 @@
   </div>
 </div>
 
+<!-- Buy Order Modal -->
+<div id="buyOrderModal" class="modal-overlay hidden" onclick="closeOnOverlay(event, 'buyOrderModal')">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>Оформление заказа</h2>
+      <button class="btn-close" onclick="closeModal('buyOrderModal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="buyOrderSummary" class="buy-order-summary"></div>
+      <form id="buyOrderForm" onsubmit="submitBuyOrder(event)">
+        <div class="form-group">
+          <label>Телефон *</label>
+          <input type="tel" id="buyPhone" class="form-input" placeholder="+996 555 123 456" required autocomplete="tel">
+        </div>
+        <div class="form-group">
+          <label>Точный адрес *</label>
+          <input type="text" id="buyAddress" class="form-input" placeholder="Улица, дом, квартира" required>
+        </div>
+        <div class="form-group">
+          <label>Комментарий</label>
+          <textarea id="buyComment" class="form-input" rows="3" placeholder="Необязательно"></textarea>
+        </div>
+        <button type="submit" class="btn-primary btn-full" id="buySubmitBtn">Подтвердить заказ</button>
+      </form>
+    </div>
+  </div>
+</div>
+
 <!-- Order Success Modal -->
 <div id="orderSuccessModal" class="modal-overlay hidden">
   <div class="modal modal-success">

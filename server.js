@@ -363,12 +363,20 @@ app.post('/api/orders', (req, res) => {
 
   // Notify admins via bot
   if (bot) {
-    const text = `🆕 *Новый заказ #${order.id}*\n` +
-      `👤 ${order.userName || 'Аноним'}\n` +
-      `📦 ${(order.items || []).map(i => `${i.name} ×${i.qty}`).join('\n')}\n` +
-      `💰 Сумма: ${order.total} сом\n` +
-      (order.discount ? `🎁 Скидка: −${order.discount} сом\n` : '') +
-      `✅ Итого: *${order.finalTotal} сом*`;
+    const itemLines = (order.items || []).map(i => {
+      const pos = i.categoryName || order.categoryName || '';
+      const flavor = i.description || i.name;
+      return pos ? `• ${pos} — ${flavor} ×${i.qty || 1}` : `• ${flavor} ×${i.qty || 1}`;
+    }).join('\n');
+    let text = `🆕 *Новый заказ #${order.id}*\n` +
+      `👤 ${order.userName || 'Аноним'}${order.username ? ` (@${order.username})` : ''}\n\n` +
+      `📦 ${itemLines}\n`;
+    if (order.phone) text += `\n📞 ${order.phone}`;
+    if (order.address) text += `\n📍 ${order.address}`;
+    if (order.comment) text += `\n💬 ${order.comment}`;
+    text += `\n\n💰 Сумма: ${order.total || order.finalTotal} сом\n`;
+    if (order.discount) text += `🎁 Скидка: −${order.discount} сом\n`;
+    text += `✅ Итого: *${order.finalTotal} сом*`;
     ADMIN_IDS.forEach(id => bot.sendMessage(id, text, { parse_mode: 'Markdown' }).catch(() => {}));
   }
 
@@ -554,13 +562,17 @@ async function initBot(retryCount = 0) {
       // Handle /start
       if (msg.text === '/start') {
         bot.sendMessage(chatId,
-          '🔴 *Добро пожаловать в Red Shop!*\n\nОдноразовые сигареты премиум качества.\nЛучшие вкусы по лучшим ценам! 💨',
+          '🔴 *Добро пожаловать в Red Shop!*\n\n' +
+          'Как заказать: выбери устройство и вкус в приложении, нажми «Купить», укажи телефон и адрес.\n\n' +
+          'Заказ оформляется через этого бота.\n\n' +
+          'Если есть вопросы — напиши менеджеру: @roomsellerr',
           {
             parse_mode: 'Markdown',
             reply_markup: {
-              inline_keyboard: [[
-                { text: '🛍️ Открыть магазин', web_app: { url: WEBAPP_URL } }
-              ]]
+              inline_keyboard: [
+                [{ text: '🛍️ Открыть магазин', web_app: { url: WEBAPP_URL } }],
+                [{ text: '💬 Написать менеджеру', url: 'https://t.me/roomsellerr' }]
+              ]
             }
           }
         );

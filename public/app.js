@@ -26,7 +26,8 @@ const state = {
   currentChatUserId: null,
   ordersFilter: 'all',
   wheelRotation: 0,
-  spinning: false
+  spinning: false,
+  buyProductId: null
 };
 
 // ─── API ─────────────────────────────────────────────────────────────────────
@@ -282,9 +283,8 @@ function renderCatalog() {
   empty.classList.add('hidden');
 
   categoryProducts.forEach((product) => {
-    const inCart = state.cart.some(c => c.id === product.id);
     const card = document.createElement('div');
-    card.className = `product-card${!product.available ? ' out-of-stock' : ''}${inCart ? ' in-cart' : ''}`;
+    card.className = `product-card${!product.available ? ' out-of-stock' : ''}`;
     card.id = `productCard_${product.id}`;
     const photoSrc = product.photo
       ? (product.photo.startsWith('http') ? product.photo : product.photo.startsWith('/') ? product.photo : '/' + product.photo)
@@ -304,11 +304,14 @@ function renderCatalog() {
       <div class="product-info">
         <div class="product-desc">${escapeHtml(product.description || product.name)}</div>
       </div>
-      <div class="product-price-footer${inCart ? ' in-cart' : ''}${!product.available ? ' disabled' : ''}"
-        id="priceFooter_${product.id}"
-        ${product.available ? `onclick="toggleCart(${product.id})"` : ''}>
+      <div class="product-price-footer">
         ${formatProductPriceHtml(product)}
       </div>
+      <button class="btn-buy" type="button"
+        ${!product.available ? 'disabled' : ''}
+        onclick="openBuyModal(${product.id})">
+        Купить
+      </button>
     `;
     grid.appendChild(card);
   });
@@ -373,16 +376,89 @@ function updateCartUI() {
 
   // Checkout button
   if (checkoutBtn) checkoutBtn.disabled = state.cart.length === 0;
+}
 
-  // Обновить состояние карточек в каталоге (цена вместо кнопки корзины)
-  state.products.forEach(p => {
-    const card = document.getElementById(`productCard_${p.id}`);
-    const footer = document.getElementById(`priceFooter_${p.id}`);
-    if (!footer) return;
-    const inCart = state.cart.some(c => c.id === p.id);
-    footer.classList.toggle('in-cart', inCart);
-    if (card) card.classList.toggle('in-cart', inCart);
-  });
+function openBuyModal(productId) {
+  const product = state.products.find(p => p.id === productId);
+  if (!product || !product.available) return;
+
+  state.buyProductId = productId;
+  const categoryName = getCategoryName(product.categoryId);
+  const summary = document.getElementById('buyOrderSummary');
+  summary.innerHTML = `
+    <div><strong>${escapeHtml(categoryName)}</strong></div>
+    <div class="buy-summary-row">${escapeHtml(product.description || product.name)}</div>
+    <div class="buy-summary-row">${formatProductPriceHtml(product)}</div>
+  `;
+
+  document.getElementById('buyPhone').value = '';
+  document.getElementById('buyAddress').value = '';
+  document.getElementById('buyComment').value = '';
+  openModal('buyOrderModal');
+}
+
+async function submitBuyOrder(e) {
+  e.preventDefault();
+  const product = state.products.find(p => p.id === state.buyProductId);
+  if (!product) return;
+
+  const phone = document.getElementById('buyPhone').value.trim();
+  const address = document.getElementById('buyAddress').value.trim();
+  const comment = document.getElementById('buyComment').value.trim();
+  if (!phone || !address) {
+    showToast('Заполните телефон и адрес', 'error');
+    return;
+  }
+
+  const btn = document.getElementById('buySubmitBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Отправка...'; }
+
+  const tgUser = tg?.initDataUnsafe?.user;
+  const categoryName = getCategoryName(product.categoryId);
+  const orderData = {
+    userId: tgUser?.id || null,
+    userName: tgUser ? `${tgUser.first_name || ''} ${tgUser.last_name || ''}`.trim() : 'Аноним',
+    username: tgUser?.username || '',
+    phone,
+    address,
+    comment,
+    categoryName,
+    categoryId: product.categoryId,
+    items: [{
+      id: product.id,
+      name: product.name,
+      description: product.description || product.name,
+      categoryId: product.categoryId,
+      categoryName,
+      price: product.price,
+      qty: 1
+    }],
+    total: product.price,
+    finalTotal: product.price,
+    discount: 0
+  };
+
+  try {
+    await submitOrderViaAPI(orderData);
+    closeModal('buyOrderModal');
+    state.buyProductId = null;
+    showToast('Заказ оформлен ✓', 'success');
+    redirectToBot();
+  } catch (err) {
+    showToast('Ошибка: ' + (err.message || 'не удалось оформить заказ'), 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Подтвердить заказ'; }
+  }
+}
+
+function redirectToBot() {
+  const botUrl = 'https://t.me/Red1shopbot';
+  if (tg && typeof tg.openTelegramLink === 'function') {
+    tg.openTelegramLink(botUrl);
+    setTimeout(() => { try { tg.close(); } catch {} }, 350);
+  } else {
+    window.open(botUrl, '_blank');
+  }
 }
 
 function openCart() {
@@ -497,11 +573,8 @@ async function checkout() {
 }
 
 async function submitOrderViaAPI(orderData) {
-  try {
-    await api('POST', '/orders', orderData);
-  } catch (err) {
-    console.error('Order API error:', err);
-  }
+  const res = await api('POST', '/orders', orderData);
+  return res;
 }
 
 function showOrderSuccess(orderData, cartItems) {
@@ -526,15 +599,8 @@ function showOrderSuccess(orderData, cartItems) {
 }
 
 function openBotChat() {
-  const botUrl = 'https://t.me/Red1shopbot';
   closeModal('orderSuccessModal');
-  if (tg && typeof tg.openTelegramLink === 'function') {
-    tg.openTelegramLink(botUrl);
-    // Close the Mini App after a short delay so the link opens
-    setTimeout(() => { try { tg.close(); } catch {} }, 350);
-  } else {
-    window.open(botUrl, '_blank');
-  }
+  redirectToBot();
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1499,7 +1565,18 @@ function renderOrders() {
       day: '2-digit', month: '2-digit', year: '2-digit',
       hour: '2-digit', minute: '2-digit'
     });
-    const itemsText = (order.items || []).map(i => `${i.name} ×${i.qty}`).join(', ');
+    const itemsText = (order.items || []).map(i => {
+      const flavor = i.description || i.name;
+      const pos = i.categoryName || order.categoryName || '';
+      return pos ? `${pos} — ${flavor} ×${i.qty || 1}` : `${flavor} ×${i.qty || 1}`;
+    }).join(', ');
+    const contactBlock = order.phone || order.address
+      ? `<div class="order-contact">
+          ${order.phone ? `<div>📞 ${escapeHtml(order.phone)}</div>` : ''}
+          ${order.address ? `<div>📍 ${escapeHtml(order.address)}</div>` : ''}
+          ${order.comment ? `<div>💬 ${escapeHtml(order.comment)}</div>` : ''}
+        </div>`
+      : '';
 
     card.innerHTML = `
       <div class="order-header">
@@ -1507,10 +1584,11 @@ function renderOrders() {
         <span class="order-date">${date}</span>
       </div>
       <div class="order-customer">
-        👤 ${order.userName || 'Аноним'}
-        ${order.username ? `<span style="color:var(--grey);font-weight:400"> @${order.username}</span>` : ''}
+        👤 ${escapeHtml(order.userName || 'Аноним')}
+        ${order.username ? `<span style="color:var(--grey);font-weight:400"> @${escapeHtml(order.username)}</span>` : ''}
       </div>
       <div class="order-items">📦 ${itemsText}</div>
+      ${contactBlock}
       <div class="order-footer">
         <div>
           <div class="order-total">${order.finalTotal} сом</div>
