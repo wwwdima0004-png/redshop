@@ -289,16 +289,101 @@ a { color: inherit; text-decoration: none; }
   gap: 10px;
   padding: 8px 16px 4px;
 }
+.catalog-header-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
 .catalog-header h2 {
   font-size: 18px;
   font-weight: 700;
 }
+.catalog-back-btn {
+  flex-shrink: 0;
+  background: var(--bg-card);
+  border: 1px solid var(--border-red);
+  color: var(--red-light);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  transition: background 0.2s, border-color 0.2s;
+}
+.catalog-back-btn:active { transform: scale(0.97); }
 .catalog-count {
   font-size: 13px;
   color: var(--grey);
   background: var(--bg-card);
   border-radius: 20px;
   padding: 2px 8px;
+}
+
+.categories-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  padding: 8px 16px 100px;
+}
+
+.category-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  transition: border-color 0.2s, transform 0.15s, box-shadow 0.2s;
+}
+.category-card:active { transform: scale(0.98); }
+.category-card:hover {
+  border-color: var(--border-red);
+  box-shadow: 0 0 0 1px rgba(227, 30, 36, 0.15);
+}
+.category-card-name {
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--white);
+  letter-spacing: -0.3px;
+}
+.category-card-meta {
+  font-size: 12px;
+  color: var(--grey);
+  margin-top: 4px;
+}
+.category-card-arrow {
+  font-size: 28px;
+  color: var(--red);
+  font-weight: 300;
+  line-height: 1;
+}
+
+.admin-categories-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 14px;
+}
+.admin-category-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--bg-card-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.admin-category-name {
+  flex: 1;
+  font-weight: 600;
+  font-size: 14px;
+}
+.admin-category-count {
+  font-size: 12px;
+  color: var(--grey);
 }
 
 .catalog-grid {

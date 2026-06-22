@@ -50,19 +50,48 @@ function ensureDataFiles() {
   }
   if (needsDefault) writeJSON('products.json', defaultProducts());
 
+  if (!fs.existsSync(path.join(DATA_DIR, 'categories.json'))) {
+    writeJSON('categories.json', defaultCategories());
+  }
+
+  migrateProductsCategory();
+
   if (!fs.existsSync(path.join(DATA_DIR, 'orders.json'))) writeJSON('orders.json', []);
   if (!fs.existsSync(path.join(DATA_DIR, 'users.json'))) writeJSON('users.json', []);
   if (!fs.existsSync(path.join(DATA_DIR, 'messages.json'))) writeJSON('messages.json', {});
 }
 
+function defaultCategories() {
+  return [
+    { id: 1, name: 'Waka' },
+    { id: 2, name: 'Elf Bar' },
+    { id: 3, name: 'Ева' }
+  ];
+}
+
+function migrateProductsCategory() {
+  const categories = readJSON('categories.json');
+  const defaultCatId = categories.length > 0 ? categories[0].id : 1;
+  const products = readJSON('products.json');
+  if (!Array.isArray(products)) return;
+  let changed = false;
+  products.forEach(p => {
+    if (!p.categoryId) {
+      p.categoryId = defaultCatId;
+      changed = true;
+    }
+  });
+  if (changed) writeJSON('products.json', products);
+}
+
 function defaultProducts() {
   return [
-    { id: 1, name: 'Watermelon Ice', price: 350, photo: '/img/placeholder.svg', available: true, sales: 0, description: 'Арбуз со льдом' },
-    { id: 2, name: 'Mango Peach', price: 350, photo: '/img/placeholder.svg', available: true, sales: 0, description: 'Манго и персик' },
-    { id: 3, name: 'Blueberry Ice', price: 380, photo: '/img/placeholder.svg', available: true, sales: 0, description: 'Черника со льдом' },
-    { id: 4, name: 'Strawberry Kiwi', price: 350, photo: '/img/placeholder.svg', available: true, sales: 0, description: 'Клубника и киви' },
-    { id: 5, name: 'Lychee Ice', price: 400, photo: '/img/placeholder.svg', available: true, sales: 0, description: 'Личи со льдом' },
-    { id: 6, name: 'Grape Ice', price: 350, photo: '/img/placeholder.svg', available: false, sales: 0, description: 'Виноград со льдом' },
+    { id: 1, name: 'Watermelon Ice', price: 350, categoryId: 1, photo: '/img/placeholder.svg', available: true, sales: 0, description: 'Арбуз со льдом' },
+    { id: 2, name: 'Mango Peach', price: 350, categoryId: 1, photo: '/img/placeholder.svg', available: true, sales: 0, description: 'Манго и персик' },
+    { id: 3, name: 'Blueberry Ice', price: 380, categoryId: 1, photo: '/img/placeholder.svg', available: true, sales: 0, description: 'Черника со льдом' },
+    { id: 4, name: 'Strawberry Kiwi', price: 350, categoryId: 1, photo: '/img/placeholder.svg', available: true, sales: 0, description: 'Клубника и киви' },
+    { id: 5, name: 'Lychee Ice', price: 400, categoryId: 1, photo: '/img/placeholder.svg', available: true, sales: 0, description: 'Личи со льдом' },
+    { id: 6, name: 'Grape Ice', price: 350, categoryId: 1, photo: '/img/placeholder.svg', available: false, sales: 0, description: 'Виноград со льдом' },
   ];
 }
 
@@ -199,6 +228,49 @@ app.post('/api/check-admin', (req, res) => {
   res.json({ isAdmin: false });
 });
 
+// Categories (public read)
+app.get('/api/categories', (req, res) => {
+  res.json(readJSON('categories.json'));
+});
+
+app.post('/api/categories', requireAdmin, (req, res) => {
+  const name = (req.body.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'Укажите название позиции' });
+  const categories = readJSON('categories.json');
+  const newId = categories.length > 0 ? Math.max(...categories.map(c => c.id)) + 1 : 1;
+  const category = { id: newId, name };
+  categories.push(category);
+  writeJSON('categories.json', categories);
+  res.json(category);
+});
+
+app.put('/api/categories/:id', requireAdmin, (req, res) => {
+  const categories = readJSON('categories.json');
+  const idx = categories.findIndex(c => c.id === parseInt(req.params.id));
+  if (idx === -1) return res.status(404).json({ error: 'Позиция не найдена' });
+  const name = (req.body.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'Укажите название позиции' });
+  categories[idx].name = name;
+  writeJSON('categories.json', categories);
+  res.json(categories[idx]);
+});
+
+app.delete('/api/categories/:id', requireAdmin, (req, res) => {
+  const catId = parseInt(req.params.id);
+  const products = readJSON('products.json');
+  const inCategory = products.filter(p => p.categoryId === catId);
+  if (inCategory.length > 0) {
+    return res.status(400).json({
+      error: `Нельзя удалить: в позиции ${inCategory.length} товар(ов). Сначала удалите или перенесите их.`
+    });
+  }
+  const categories = readJSON('categories.json');
+  const filtered = categories.filter(c => c.id !== catId);
+  if (filtered.length === categories.length) return res.status(404).json({ error: 'Позиция не найдена' });
+  writeJSON('categories.json', filtered);
+  res.json({ ok: true });
+});
+
 // Products (public)
 app.get('/api/products', (req, res) => {
   res.json(readJSON('products.json'));
@@ -207,16 +279,24 @@ app.get('/api/products', (req, res) => {
 // Products (admin)
 app.post('/api/products', requireAdmin, upload.single('photo'), (req, res) => {
   const products = readJSON('products.json');
+  const categories = readJSON('categories.json');
   const newId = products.length > 0 ? Math.max(...products.map(p => p.id)) + 1 : 1;
+  const defaultCatId = categories.length > 0 ? categories[0].id : 1;
+  let categoryId = parseInt(req.body.categoryId);
+  if (isNaN(categoryId) || !categories.some(c => c.id === categoryId)) categoryId = defaultCatId;
+  const oldPriceRaw = req.body.oldPrice;
+  const oldPrice = oldPriceRaw !== undefined && oldPriceRaw !== '' ? parseInt(oldPriceRaw) : null;
   const product = {
     id: newId,
     name: req.body.name,
     price: parseInt(req.body.price),
+    categoryId,
     photo: req.file ? `/uploads/${req.file.filename}` : '/img/placeholder.svg',
     available: true,
     sales: 0,
     description: req.body.description || ''
   };
+  if (oldPrice && oldPrice > product.price) product.oldPrice = oldPrice;
   products.push(product);
   writeJSON('products.json', products);
   res.json(product);
@@ -224,6 +304,7 @@ app.post('/api/products', requireAdmin, upload.single('photo'), (req, res) => {
 
 app.put('/api/products/:id', requireAdmin, upload.single('photo'), (req, res) => {
   const products = readJSON('products.json');
+  const categories = readJSON('categories.json');
   const idx = products.findIndex(p => p.id === parseInt(req.params.id));
   if (idx === -1) return res.status(404).json({ error: 'Товар не найден' });
 
@@ -231,6 +312,17 @@ app.put('/api/products/:id', requireAdmin, upload.single('photo'), (req, res) =>
   if (req.body.price !== undefined) products[idx].price = parseInt(req.body.price);
   if (req.body.available !== undefined) products[idx].available = req.body.available === 'true' || req.body.available === true;
   if (req.body.description !== undefined) products[idx].description = req.body.description;
+  if (req.body.categoryId !== undefined) {
+    const categoryId = parseInt(req.body.categoryId);
+    if (!isNaN(categoryId) && categories.some(c => c.id === categoryId)) {
+      products[idx].categoryId = categoryId;
+    }
+  }
+  if (req.body.oldPrice !== undefined) {
+    const oldPrice = req.body.oldPrice === '' || req.body.oldPrice === null ? null : parseInt(req.body.oldPrice);
+    if (oldPrice && oldPrice > products[idx].price) products[idx].oldPrice = oldPrice;
+    else delete products[idx].oldPrice;
+  }
   if (req.file) products[idx].photo = `/uploads/${req.file.filename}`;
 
   writeJSON('products.json', products);

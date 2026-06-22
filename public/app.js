@@ -14,6 +14,8 @@ if (tg) {
 // ─── State ───────────────────────────────────────────────────────────────────
 const state = {
   products: [],
+  categories: [],
+  selectedCategoryId: null,
   cart: [],        // [{id, name, price, photo, qty}]
   discount: 0,
   adminPassword: null,       // legacy (kept for backward compat)
@@ -100,75 +102,151 @@ function closeOnOverlay(e, id) {
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
-  await loadProducts();
+  await initShop();
   checkSpinStatus();
   checkExistingDiscount();
-  initAdminCheck(); // Check if current user is admin by Telegram ID
+  initAdminCheck();
 });
 
 // ═══════════════════════════════════════════════════════════════
 // SHOP
 // ═══════════════════════════════════════════════════════════════
 
-async function loadProducts(attempt = 1) {
-  const grid = document.getElementById('catalog');
+function getCategoryName(categoryId) {
+  const cat = state.categories.find(c => c.id === categoryId);
+  return cat ? cat.name : '—';
+}
+
+function getCategoryProductCount(categoryId) {
+  return state.products.filter(p => p.categoryId === categoryId).length;
+}
+
+async function initShop(attempt = 1) {
+  const categoriesView = document.getElementById('categoriesView');
+  const catalog = document.getElementById('catalog');
   const empty = document.getElementById('catalogEmpty');
 
-  console.log('[RedShop] loadProducts attempt', attempt);
-
-  // Show loading state only on first attempt
   if (attempt === 1) {
-    grid.innerHTML = `
-      <div class="loading-products" style="grid-column:1/-1;text-align:center;padding:40px 20px;color:#888">
+    categoriesView.innerHTML = `
+      <div class="loading-products" style="text-align:center;padding:40px 20px;color:#888">
         <div style="font-size:2rem;margin-bottom:10px">⏳</div>
-        <div>Загрузка товаров...</div>
+        <div>Загрузка каталога...</div>
       </div>`;
+    catalog.classList.add('hidden');
+    categoriesView.classList.remove('hidden');
     empty.classList.add('hidden');
   }
 
   try {
-    const data = await api('GET', '/products');
-    console.log('[RedShop] /api/products ответ:', data);
-
-    if (!Array.isArray(data)) {
-      console.error('[RedShop] Неверный формат ответа (не массив):', data);
+    const [products, categories] = await Promise.all([
+      api('GET', '/products'),
+      api('GET', '/categories')
+    ]);
+    if (!Array.isArray(products) || !Array.isArray(categories)) {
       throw new Error('Сервер вернул неверный формат');
     }
-
-    console.log('[RedShop] Товаров получено:', data.length);
-    state.products = data;
-
-    // renderCatalog изолирован — ошибка внутри не сломает retry-логику
-    try {
-      renderCatalog();
-      console.log('[RedShop] renderCatalog завершён, карточек в DOM:', grid.children.length);
-    } catch (renderErr) {
-      console.error('[RedShop] Ошибка внутри renderCatalog:', renderErr);
-      grid.innerHTML = '<div style="padding:20px;color:#e31e24">Ошибка отображения товаров: ' + renderErr.message + '</div>';
-    }
+    state.products = products;
+    state.categories = categories;
+    state.selectedCategoryId = null;
+    showCategoriesView();
   } catch (err) {
-    console.error('[RedShop] Ошибка загрузки, attempt', attempt, ':', err.message);
-    // Render free tier cold start can take 30-50s — retry up to 4 times
     if (attempt < 4) {
-      const delay = attempt * 5000; // 5s, 10s, 15s
-      grid.innerHTML = `
-        <div class="loading-products" style="grid-column:1/-1;text-align:center;padding:40px 20px;color:#888">
+      const delay = attempt * 5000;
+      categoriesView.innerHTML = `
+        <div class="loading-products" style="text-align:center;padding:40px 20px;color:#888">
           <div style="font-size:2rem;margin-bottom:10px">🔄</div>
           <div>Сервер запускается, подождите...</div>
           <div style="font-size:0.8rem;margin-top:6px;color:#555">Попытка ${attempt + 1} через ${delay / 1000} сек</div>
         </div>`;
-      setTimeout(() => loadProducts(attempt + 1), delay);
+      setTimeout(() => initShop(attempt + 1), delay);
     } else {
-      grid.innerHTML = '';
+      categoriesView.innerHTML = '';
       empty.classList.remove('hidden');
       empty.innerHTML = `
         <div class="empty-icon">⚠️</div>
-        <div>Не удалось загрузить товары</div>
+        <div>Не удалось загрузить каталог</div>
         <div style="font-size:0.8rem;color:#666;margin-top:6px">${err.message}</div>
-        <button class="btn-outline" style="margin-top:16px" onclick="loadProducts()">Попробовать снова</button>`;
+        <button class="btn-outline" style="margin-top:16px" onclick="initShop()">Попробовать снова</button>`;
+      showToast('Ошибка загрузки каталога', 'error');
+    }
+  }
+}
+
+async function loadProducts(attempt = 1) {
+  try {
+    const [products, categories] = await Promise.all([
+      api('GET', '/products'),
+      api('GET', '/categories')
+    ]);
+    state.products = products;
+    state.categories = categories;
+    if (state.selectedCategoryId) renderCatalog();
+    else showCategoriesView();
+  } catch (err) {
+    if (attempt < 4) {
+      setTimeout(() => loadProducts(attempt + 1), attempt * 5000);
+    } else {
       showToast('Ошибка загрузки товаров', 'error');
     }
   }
+}
+
+function showCategoriesView() {
+  state.selectedCategoryId = null;
+  document.getElementById('catalogTitle').textContent = 'Waka line';
+  document.getElementById('catalogBackBtn').classList.add('hidden');
+  document.getElementById('catalog').classList.add('hidden');
+  document.getElementById('catalogEmpty').classList.add('hidden');
+  document.getElementById('categoriesView').classList.remove('hidden');
+  renderCategories();
+}
+
+function renderCategories() {
+  const grid = document.getElementById('categoriesView');
+  const countEl = document.getElementById('catalogCount');
+
+  grid.innerHTML = '';
+  countEl.textContent = `${state.categories.length} поз.`;
+
+  if (state.categories.length === 0) {
+    grid.innerHTML = `
+      <div class="empty-state" style="grid-column:1/-1">
+        <div class="empty-icon">📦</div>
+        <div>Позиции не найдены</div>
+      </div>`;
+    return;
+  }
+
+  state.categories.forEach(cat => {
+    const total = getCategoryProductCount(cat.id);
+    const available = state.products.filter(p => p.categoryId === cat.id && p.available).length;
+    const card = document.createElement('div');
+    card.className = 'category-card';
+    card.onclick = () => openCategory(cat.id);
+    card.innerHTML = `
+      <div>
+        <div class="category-card-name">${escapeHtml(cat.name)}</div>
+        <div class="category-card-meta">${available} вкусов${total !== available ? ` · всего ${total}` : ''}</div>
+      </div>
+      <span class="category-card-arrow">›</span>
+    `;
+    grid.appendChild(card);
+  });
+}
+
+function openCategory(categoryId) {
+  state.selectedCategoryId = categoryId;
+  const cat = state.categories.find(c => c.id === categoryId);
+  document.getElementById('catalogTitle').textContent = cat ? cat.name : 'Waka line';
+  document.getElementById('catalogBackBtn').classList.remove('hidden');
+  document.getElementById('categoriesView').classList.add('hidden');
+  document.getElementById('catalog').classList.remove('hidden');
+  document.getElementById('catalogEmpty').classList.add('hidden');
+  renderCatalog();
+}
+
+function backToCategories() {
+  showCategoriesView();
 }
 
 function formatProductPriceHtml(product) {
@@ -185,22 +263,25 @@ function renderCatalog() {
   const empty = document.getElementById('catalogEmpty');
   const count = document.getElementById('catalogCount');
 
-  console.log('[RedShop] renderCatalog вызван, state.products:', state.products.length);
-
-  const available = state.products.filter(p => p.available);
+  const categoryId = state.selectedCategoryId;
+  const categoryProducts = categoryId
+    ? state.products.filter(p => p.categoryId === categoryId)
+    : state.products;
+  const available = categoryProducts.filter(p => p.available);
 
   grid.innerHTML = '';
-  count.textContent = `${available.length} поз.`;
+  count.textContent = `${available.length} вкусов`;
 
-  if (state.products.length === 0) {
-    console.log('[RedShop] Нет товаров — показываем empty state');
+  if (categoryProducts.length === 0) {
     empty.classList.remove('hidden');
+    empty.innerHTML = `
+      <div class="empty-icon">📦</div>
+      <div>В этой позиции пока нет вкусов</div>`;
     return;
   }
   empty.classList.add('hidden');
 
-  state.products.forEach((product, i) => {
-    console.log(`[RedShop] Рендер товара #${i + 1}:`, product.id, product.name);
+  categoryProducts.forEach((product) => {
     const inCart = state.cart.some(c => c.id === product.id);
     const card = document.createElement('div');
     card.className = `product-card${!product.available ? ' out-of-stock' : ''}${inCart ? ' in-cart' : ''}`;
@@ -231,7 +312,6 @@ function renderCatalog() {
     `;
     grid.appendChild(card);
   });
-  console.log('[RedShop] renderCatalog: добавлено карточек в DOM:', grid.children.length);
 }
 
 function previewImage(src) {
@@ -991,10 +1071,17 @@ function showAdminPanel() {
   switchAdminTab('products');
 }
 
+function refreshShopView() {
+  if (document.getElementById('shopView').classList.contains('hidden')) return;
+  if (state.selectedCategoryId) renderCatalog();
+  else showCategoriesView();
+}
+
 function logoutAdmin() {
   state.adminPassword = null;
   document.getElementById('adminPanel').classList.add('hidden');
   document.getElementById('shopView').classList.remove('hidden');
+  refreshShopView();
   showToast('Выход из админ панели');
 }
 
@@ -1023,15 +1110,130 @@ function switchAdminTab(tab) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// ADMIN — PRODUCTS
+// ADMIN — PRODUCTS & CATEGORIES
 // ═══════════════════════════════════════════════════════════════
+
+function populateCategorySelects() {
+  const addSelect = document.getElementById('addProductCategory');
+  if (!addSelect) return;
+  const current = addSelect.value;
+  addSelect.innerHTML = '<option value="">Выберите позицию</option>' +
+    state.categories.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
+  if (current) addSelect.value = current;
+}
 
 async function loadAdminProducts() {
   try {
-    state.products = await api('GET', '/products');
+    const [products, categories] = await Promise.all([
+      api('GET', '/products'),
+      api('GET', '/categories')
+    ]);
+    state.products = products;
+    state.categories = categories;
+    populateCategorySelects();
+    renderAdminCategories();
     renderAdminProducts();
+    refreshShopView();
   } catch (err) {
     showToast('Ошибка загрузки товаров', 'error');
+  }
+}
+
+function renderAdminCategories() {
+  const list = document.getElementById('adminCategoriesList');
+  if (!list) return;
+  list.innerHTML = '';
+
+  if (state.categories.length === 0) {
+    list.innerHTML = '<div class="empty-state" style="padding:16px"><div>Нет позиций</div></div>';
+    return;
+  }
+
+  state.categories.forEach(cat => {
+    const count = getCategoryProductCount(cat.id);
+    const item = document.createElement('div');
+    item.className = 'admin-category-item';
+    item.id = `adminCategory_${cat.id}`;
+    item.innerHTML = `
+      <div class="admin-category-name" id="catNameDisplay_${cat.id}">${escapeHtml(cat.name)}</div>
+      <span class="admin-category-count">${count} вкус(ов)</span>
+      <div id="catEditRow_${cat.id}" class="inline-edit-row hidden">
+        <input type="text" class="form-input" id="catNameInput_${cat.id}" value="${escapeHtml(cat.name)}">
+        <button class="btn-primary btn-sm" onclick="saveCategoryName(${cat.id})">✓</button>
+        <button class="btn-sm btn-sm-grey" onclick="cancelCategoryEdit(${cat.id})">✕</button>
+      </div>
+      <button class="btn-sm btn-sm-red" onclick="toggleCategoryEdit(${cat.id})">✏️</button>
+      <button class="btn-sm btn-sm-red" onclick="deleteCategory(${cat.id})">🗑</button>
+    `;
+    list.appendChild(item);
+  });
+}
+
+async function addCategory(e) {
+  e.preventDefault();
+  const input = document.getElementById('addCategoryName');
+  const name = input.value.trim();
+  if (!name) { showToast('Введите название позиции', 'error'); return; }
+  try {
+    await api('POST', '/categories', { name }, true);
+    showToast(`Позиция «${name}» добавлена ✓`, 'success');
+    input.value = '';
+    await loadAdminProducts();
+    if (!state.selectedCategoryId) showCategoriesView();
+    else await loadProducts();
+  } catch (err) {
+    showToast('Ошибка: ' + err.message, 'error');
+  }
+}
+
+function toggleCategoryEdit(id) {
+  document.getElementById(`catEditRow_${id}`)?.classList.toggle('hidden');
+  document.getElementById(`catNameDisplay_${id}`)?.classList.toggle('hidden');
+}
+
+function cancelCategoryEdit(id) {
+  document.getElementById(`catEditRow_${id}`)?.classList.add('hidden');
+  document.getElementById(`catNameDisplay_${id}`)?.classList.remove('hidden');
+  const cat = state.categories.find(c => c.id === id);
+  const input = document.getElementById(`catNameInput_${id}`);
+  if (cat && input) input.value = cat.name;
+}
+
+async function saveCategoryName(id) {
+  const input = document.getElementById(`catNameInput_${id}`);
+  const name = input?.value.trim();
+  if (!name) { showToast('Введите название', 'error'); return; }
+  try {
+    await api('PUT', `/categories/${id}`, { name }, true);
+    showToast('Позиция переименована ✓', 'success');
+    await loadAdminProducts();
+    if (state.selectedCategoryId === id) {
+      document.getElementById('catalogTitle').textContent = name;
+    }
+    if (!state.selectedCategoryId) showCategoriesView();
+    else if (state.selectedCategoryId) renderCatalog();
+  } catch (err) {
+    showToast('Ошибка: ' + err.message, 'error');
+  }
+}
+
+async function deleteCategory(id) {
+  const cat = state.categories.find(c => c.id === id);
+  const count = getCategoryProductCount(id);
+  if (count > 0) {
+    showToast(`Нельзя удалить «${cat?.name}»: в ней ${count} товар(ов)`, 'error');
+    return;
+  }
+  if (!confirm(`Удалить позицию «${cat?.name}»?`)) return;
+  try {
+    await api('DELETE', `/categories/${id}`, null, true);
+    showToast('Позиция удалена', 'success');
+    await loadAdminProducts();
+    if (state.selectedCategoryId === id) showCategoriesView();
+    else if (!state.selectedCategoryId) showCategoriesView();
+    else renderCatalog();
+  } catch (err) {
+    showToast(err.message || 'Ошибка удаления', 'error');
   }
 }
 
@@ -1056,15 +1258,28 @@ function renderAdminProducts() {
       <div class="admin-product-body">
         <div class="admin-product-name">${product.name}</div>
         <div class="admin-product-meta">
-          <span class="admin-product-price">${product.price} сом</span>
+          <span class="admin-product-price">${product.oldPrice && product.oldPrice > product.price
+            ? `<span class="price-old">${product.oldPrice}</span> ${product.price} сом`
+            : `${product.price} сом`}</span>
+          <span class="status-pill available">${escapeHtml(getCategoryName(product.categoryId))}</span>
           <span class="admin-product-sales">Продано: ${product.sales || 0}</span>
           <span class="status-pill ${product.available ? 'available' : 'unavailable'}">
             ${product.available ? 'В наличии' : 'Нет в наличии'}
           </span>
         </div>
+        <div class="form-group" style="margin-top:8px">
+          <label style="font-size:11px;color:var(--grey)">Позиция</label>
+          <select class="form-input" id="catSelect_${product.id}" onchange="changeProductCategory(${product.id}, this.value)">
+            ${state.categories.map(c =>
+              `<option value="${c.id}" ${c.id === product.categoryId ? 'selected' : ''}>${escapeHtml(c.name)}</option>`
+            ).join('')}
+          </select>
+        </div>
         <div id="editRow_${product.id}" class="inline-edit-row hidden">
           <input type="number" class="form-input" id="priceInput_${product.id}"
             value="${product.price}" placeholder="Цена" min="1">
+          <input type="number" class="form-input" id="oldPriceInput_${product.id}"
+            value="${product.oldPrice || ''}" placeholder="Старая цена" min="1">
           <button class="btn-primary btn-sm" onclick="savePrice(${product.id})">✓</button>
           <button class="btn-sm btn-sm-grey" onclick="cancelEdit(${product.id})">✕</button>
         </div>
@@ -1097,17 +1312,35 @@ function cancelEdit(id) {
 
 async function savePrice(id) {
   const input = document.getElementById(`priceInput_${id}`);
+  const oldInput = document.getElementById(`oldPriceInput_${id}`);
   const price = parseInt(input.value);
   if (!price || price < 1) { showToast('Введите корректную цену', 'error'); return; }
 
   try {
     const fd = new FormData();
     fd.append('price', price);
+    const oldVal = oldInput?.value?.trim();
+    fd.append('oldPrice', oldVal || '');
     await adminFormFetch('PUT', `${API}/products/${id}`, fd);
     showToast('Цена обновлена ✓', 'success');
     await loadAdminProducts();
+    if (state.selectedCategoryId) renderCatalog();
   } catch {
     showToast('Ошибка обновления', 'error');
+  }
+}
+
+async function changeProductCategory(id, categoryId) {
+  try {
+    const fd = new FormData();
+    fd.append('categoryId', parseInt(categoryId));
+    await adminFormFetch('PUT', `${API}/products/${id}`, fd);
+    showToast('Позиция товара обновлена ✓', 'success');
+    await loadAdminProducts();
+    if (state.selectedCategoryId) renderCatalog();
+    else showCategoriesView();
+  } catch {
+    showToast('Ошибка обновления позиции', 'error');
   }
 }
 
@@ -1171,13 +1404,18 @@ async function addProduct(e) {
   // Validate
   const name  = form.elements['name']?.value?.trim();
   const price = parseInt(form.elements['price']?.value);
+  const categoryId = form.elements['categoryId']?.value;
   if (!name)          { showToast('Введите название', 'error'); return; }
   if (!price || price < 1) { showToast('Введите цену', 'error'); return; }
+  if (!categoryId) { showToast('Выберите позицию', 'error'); return; }
 
   const fd = new FormData();
   fd.append('name',  name);
   fd.append('price', price);
+  fd.append('categoryId', categoryId);
   fd.append('description', form.elements['description']?.value?.trim() || '');
+  const oldPrice = form.elements['oldPrice']?.value?.trim();
+  if (oldPrice) fd.append('oldPrice', oldPrice);
 
   const fileInput = document.getElementById('addProductPhoto');
   if (fileInput?.files[0]) fd.append('photo', fileInput.files[0]);
@@ -1195,7 +1433,8 @@ async function addProduct(e) {
     if (photoName) photoName.textContent = 'Выберите фото';
     // Refresh both admin list and shop catalog
     await loadAdminProducts();
-    await loadProducts();
+    if (state.selectedCategoryId) renderCatalog();
+    else showCategoriesView();
   } catch (err) {
     showToast('Ошибка: ' + err.message, 'error');
   } finally {
