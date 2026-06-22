@@ -171,6 +171,15 @@ async function loadProducts(attempt = 1) {
   }
 }
 
+function formatProductPriceHtml(product) {
+  const price = Number(product.price) || 0;
+  const oldPrice = Number(product.oldPrice);
+  if (oldPrice && oldPrice > price) {
+    return `<span class="price-old">${oldPrice} сом</span><span class="price-current">${price} сом</span>`;
+  }
+  return `<span class="price-current">${price} сом</span>`;
+}
+
 function renderCatalog() {
   const grid = document.getElementById('catalog');
   const empty = document.getElementById('catalogEmpty');
@@ -181,7 +190,7 @@ function renderCatalog() {
   const available = state.products.filter(p => p.available);
 
   grid.innerHTML = '';
-  count.textContent = `${available.length} вкусов`;
+  count.textContent = `${available.length} поз.`;
 
   if (state.products.length === 0) {
     console.log('[RedShop] Нет товаров — показываем empty state');
@@ -192,9 +201,10 @@ function renderCatalog() {
 
   state.products.forEach((product, i) => {
     console.log(`[RedShop] Рендер товара #${i + 1}:`, product.id, product.name);
-    const card = document.createElement('div');
-    card.className = `product-card${!product.available ? ' out-of-stock' : ''}`;
     const inCart = state.cart.some(c => c.id === product.id);
+    const card = document.createElement('div');
+    card.className = `product-card${!product.available ? ' out-of-stock' : ''}${inCart ? ' in-cart' : ''}`;
+    card.id = `productCard_${product.id}`;
     const photoSrc = product.photo
       ? (product.photo.startsWith('http') ? product.photo : product.photo.startsWith('/') ? product.photo : '/' + product.photo)
       : '/img/placeholder.svg';
@@ -202,7 +212,7 @@ function renderCatalog() {
     card.innerHTML = `
       <div class="product-photo-wrap" onclick="previewImage('${photoSrc}')">
         <div class="img-skeleton" id="skel_${product.id}"></div>
-        <img class="product-photo" src="${photoSrc}" alt="${product.name}"
+        <img class="product-photo" src="${photoSrc}" alt="${escapeHtml(product.description || product.name)}"
           loading="lazy"
           onload="this.previousElementSibling.style.display='none';this.style.opacity='1'"
           onerror="this.src='/img/placeholder.svg';this.previousElementSibling.style.display='none';this.style.opacity='1'"
@@ -211,15 +221,13 @@ function renderCatalog() {
         <div class="product-badge">ВЕЙП</div>
       </div>
       <div class="product-info">
-        <div class="product-name">${escapeHtml(product.name)}</div>
-        <div class="product-desc">${escapeHtml(product.description || '')}</div>
-        <div class="product-price">${product.price} сом</div>
+        <div class="product-desc">${escapeHtml(product.description || product.name)}</div>
       </div>
-      <button class="btn-add-cart ${inCart ? 'in-cart' : ''}"
-        ${!product.available ? 'disabled' : ''}
-        onclick="toggleCart(${product.id})" id="cartBtn_${product.id}">
-        ${inCart ? '✓ В корзине' : '+ В корзину'}
-      </button>
+      <div class="product-price-footer${inCart ? ' in-cart' : ''}${!product.available ? ' disabled' : ''}"
+        id="priceFooter_${product.id}"
+        ${product.available ? `onclick="toggleCart(${product.id})"` : ''}>
+        ${formatProductPriceHtml(product)}
+      </div>
     `;
     grid.appendChild(card);
   });
@@ -286,13 +294,14 @@ function updateCartUI() {
   // Checkout button
   if (checkoutBtn) checkoutBtn.disabled = state.cart.length === 0;
 
-  // Re-render catalog buttons
+  // Обновить состояние карточек в каталоге (цена вместо кнопки корзины)
   state.products.forEach(p => {
-    const btn = document.getElementById(`cartBtn_${p.id}`);
-    if (!btn) return;
+    const card = document.getElementById(`productCard_${p.id}`);
+    const footer = document.getElementById(`priceFooter_${p.id}`);
+    if (!footer) return;
     const inCart = state.cart.some(c => c.id === p.id);
-    btn.textContent = inCart ? '✓ В корзине' : '+ В корзину';
-    btn.className = `btn-add-cart ${inCart ? 'in-cart' : ''}`;
+    footer.classList.toggle('in-cart', inCart);
+    if (card) card.classList.toggle('in-cart', inCart);
   });
 }
 
