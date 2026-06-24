@@ -28,7 +28,8 @@ const state = {
   wheelRotation: 0,
   spinning: false,
   buyProductId: null,
-  currentMainTab: 'catalog'
+  currentMainTab: 'catalog',
+  myOrdersCount: null
 };
 
 // ─── API ─────────────────────────────────────────────────────────────────────
@@ -126,7 +127,7 @@ function setBottomNavVisible(visible) {
   document.getElementById('bottomNav')?.classList.toggle('hidden', !visible);
 }
 
-function switchMainTab(tab) {
+function switchMainTab(tab, options = {}) {
   if (!MAIN_TAB_VIEWS[tab]) return;
   state.currentMainTab = tab;
 
@@ -138,8 +139,23 @@ function switchMainTab(tab) {
     btn.classList.toggle('active', btn.dataset.tab === tab);
   });
 
-  if (tab === 'profile') renderProfile();
+  if (tab === 'profile') {
+    if (options.resetProfileSub !== false) closeOrderHistory(true);
+    renderProfile();
+  } else {
+    closeOrderHistory(false);
+  }
 }
+
+function getTelegramInitData() {
+  return tg?.initData || state.telegramInitData || null;
+}
+
+const ORDER_STATUS_LABELS = {
+  new: 'Новый',
+  processing: 'В обработке',
+  done: 'Выполнен'
+};
 
 function getTelegramUser() {
   return tg?.initDataUnsafe?.user || null;
@@ -196,7 +212,11 @@ function renderProfile() {
   if (balanceEl) balanceEl.textContent = '0';
 
   const ordersEl = document.getElementById('profileOrdersCount');
-  if (ordersEl) ordersEl.textContent = '0';
+  if (ordersEl) {
+    ordersEl.textContent = state.myOrdersCount != null ? String(state.myOrdersCount) : '0';
+  }
+
+  if (getTelegramUser()) refreshMyOrdersCount();
 
   const referralsEl = document.getElementById('profileReferralsCount');
   if (referralsEl) referralsEl.textContent = '0';
@@ -217,12 +237,113 @@ function renderProfile() {
 
 function profileMenuStub(section) {
   const labels = {
-    history: 'История заказов',
     referral: 'Реферальная программа',
     promo: 'Ввод промокода',
     interface: 'Оформление интерфейса'
   };
   showToast(`${labels[section] || 'Раздел'} — скоро будет доступно`);
+}
+
+async function fetchMyOrders() {
+  const initData = getTelegramInitData();
+  if (!initData) {
+    throw new Error('Откройте приложение через Telegram');
+  }
+  const res = await fetch(`${API}/orders/my`, {
+    headers: { 'x-telegram-init-data': initData }
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Не удалось загрузить заказы');
+  return data;
+}
+
+async function refreshMyOrdersCount() {
+  try {
+    const orders = await fetchMyOrders();
+    state.myOrdersCount = orders.length;
+    const ordersEl = document.getElementById('profileOrdersCount');
+    if (ordersEl) ordersEl.textContent = String(state.myOrdersCount);
+  } catch {}
+}
+
+function formatOrderDate(iso) {
+  return new Date(iso).toLocaleString('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+}
+
+function renderMyOrders(orders) {
+  const list = document.getElementById('myOrdersList');
+  const empty = document.getElementById('myOrdersEmpty');
+  if (!list || !empty) return;
+
+  list.innerHTML = '';
+
+  if (!orders.length) {
+    empty.classList.remove('hidden');
+    return;
+  }
+
+  empty.classList.add('hidden');
+
+  orders.forEach(order => {
+    const card = document.createElement('div');
+    card.className = `my-order-card status-${order.status || 'new'}`;
+    const statusLabel = ORDER_STATUS_LABELS[order.status] || order.status || '—';
+    const itemsHtml = (order.items || [])
+      .map(i => `<li>${escapeHtml(i.name)} ×${i.qty || 1}</li>`)
+      .join('');
+
+    card.innerHTML = `
+      <div class="my-order-card-top">
+        <span class="my-order-date">${formatOrderDate(order.createdAt)}</span>
+        <span class="my-order-status">${statusLabel}</span>
+      </div>
+      <ul class="my-order-items">${itemsHtml || '<li>—</li>'}</ul>
+      <div class="my-order-footer">
+        ${order.discount ? `<span class="my-order-discount">Скидка: −${order.discount} сом</span>` : ''}
+        <span class="my-order-total">${order.finalTotal ?? order.total ?? 0} сом</span>
+      </div>
+    `;
+    list.appendChild(card);
+  });
+}
+
+async function openOrderHistory() {
+  switchMainTab('profile', { resetProfileSub: false });
+  document.getElementById('profileMain')?.classList.add('hidden');
+  document.getElementById('orderHistoryScreen')?.classList.remove('hidden');
+
+  const loading = document.getElementById('myOrdersLoading');
+  const list = document.getElementById('myOrdersList');
+  const empty = document.getElementById('myOrdersEmpty');
+
+  if (loading) loading.classList.remove('hidden');
+  if (list) list.innerHTML = '';
+  if (empty) empty.classList.add('hidden');
+
+  try {
+    const orders = await fetchMyOrders();
+    state.myOrdersCount = orders.length;
+    const ordersEl = document.getElementById('profileOrdersCount');
+    if (ordersEl) ordersEl.textContent = String(state.myOrdersCount);
+    renderMyOrders(orders);
+  } catch (err) {
+    document.getElementById('profileMain')?.classList.remove('hidden');
+    document.getElementById('orderHistoryScreen')?.classList.add('hidden');
+    showToast(err.message || 'Ошибка загрузки заказов', 'error');
+  } finally {
+    if (loading) loading.classList.add('hidden');
+  }
+}
+
+function closeOrderHistory(showProfile = true) {
+  document.getElementById('orderHistoryScreen')?.classList.add('hidden');
+  if (showProfile) document.getElementById('profileMain')?.classList.remove('hidden');
 }
 
 // ═══════════════════════════════════════════════════════════════

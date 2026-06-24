@@ -113,6 +113,15 @@ function verifyTelegramInitData(initData) {
   } catch { return false; }
 }
 
+function getVerifiedTelegramUserId(initData) {
+  if (!initData || !verifyTelegramInitData(initData)) return null;
+  try {
+    const params = new URLSearchParams(initData);
+    const user = JSON.parse(decodeURIComponent(params.get('user') || '{}'));
+    return user.id || null;
+  } catch { return null; }
+}
+
 // ─── Set bot menu button ──────────────────────────────────────────────────────
 
 function setBotMenuButton() {
@@ -348,6 +357,18 @@ app.delete('/api/products/:id', requireAdmin, (req, res) => {
 app.get('/api/orders', requireAdmin, (req, res) => {
   const orders = readJSON('orders.json');
   res.json(orders.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)));
+});
+
+app.get('/api/orders/my', (req, res) => {
+  const verifiedUserId = getVerifiedTelegramUserId(req.headers['x-telegram-init-data']);
+  if (!verifiedUserId) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  const orders = readJSON('orders.json');
+  const mine = orders
+    .filter(o => Number(o.userId) === Number(verifiedUserId))
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  res.json(mine);
 });
 
 app.post('/api/orders', (req, res) => {

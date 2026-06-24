@@ -347,6 +347,126 @@ body {
   line-height: 1;
 }
 
+/* ─── Order history (profile) ───────────────────────────────────────────────── */
+.order-history-screen {
+  padding: 16px 16px 8px;
+  max-width: 480px;
+  margin: 0 auto;
+}
+
+.order-history-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.order-history-title {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: var(--white);
+}
+
+.order-history-loading {
+  text-align: center;
+  color: var(--grey);
+  font-size: 14px;
+  padding: 24px 0;
+}
+
+.my-orders-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.my-order-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  border-left: 3px solid var(--border);
+}
+
+.my-order-card.status-new { border-left-color: var(--red); }
+.my-order-card.status-processing { border-left-color: var(--warning); }
+.my-order-card.status-done { border-left-color: var(--success); }
+
+.my-order-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.my-order-date {
+  font-size: 13px;
+  color: var(--grey);
+  font-weight: 500;
+}
+
+.my-order-status {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--red-light);
+  background: var(--red-glow);
+  border: 1px solid var(--border-red);
+  border-radius: 20px;
+  padding: 3px 10px;
+  white-space: nowrap;
+}
+
+.my-order-card.status-done .my-order-status {
+  color: var(--success);
+  background: rgba(34, 197, 94, 0.12);
+  border-color: rgba(34, 197, 94, 0.25);
+}
+
+.my-order-card.status-processing .my-order-status {
+  color: var(--warning);
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.25);
+}
+
+.my-order-items {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.my-order-items li {
+  font-size: 14px;
+  color: var(--white);
+  line-height: 1.4;
+}
+
+.my-order-footer {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.my-order-discount {
+  font-size: 12px;
+  color: var(--success);
+  font-weight: 600;
+}
+
+.my-order-total {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--red-light);
+  margin-left: auto;
+}
+
 #shopView::before {
   content: '';
   position: fixed;

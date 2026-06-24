@@ -91,7 +91,7 @@
 
 <!-- ═══════════════════ TAB: PROFILE ═══════════════════ -->
 <div id="profileView" class="main-tab-view hidden">
-  <div class="profile-page">
+  <div id="profileMain" class="profile-page">
     <div class="profile-header">
       <div class="profile-avatar-wrap">
         <img id="profileAvatar" class="profile-avatar hidden" alt="" onerror="onProfileAvatarError()">
@@ -133,7 +133,7 @@
     </div>
 
     <div class="profile-menu">
-      <button type="button" class="profile-menu-item" onclick="profileMenuStub('history')">
+      <button type="button" class="profile-menu-item" onclick="openOrderHistory()">
         <span class="profile-menu-icon" aria-hidden="true">📋</span>
         <span class="profile-menu-text">История заказов</span>
         <span class="profile-menu-arrow">›</span>
@@ -153,6 +153,19 @@
         <span class="profile-menu-text">Оформление интерфейса</span>
         <span class="profile-menu-arrow">›</span>
       </button>
+    </div>
+  </div>
+
+  <div id="orderHistoryScreen" class="order-history-screen hidden">
+    <div class="order-history-header">
+      <button type="button" class="catalog-back-btn" onclick="closeOrderHistory()">← Назад</button>
+      <h2 class="order-history-title">История заказов</h2>
+    </div>
+    <div id="myOrdersLoading" class="order-history-loading hidden">Загрузка...</div>
+    <div id="myOrdersList" class="my-orders-list"></div>
+    <div id="myOrdersEmpty" class="empty-state hidden">
+      <div class="empty-icon">📋</div>
+      <div>У вас пока нет заказов</div>
     </div>
   </div>
 </div>
