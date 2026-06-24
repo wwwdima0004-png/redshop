@@ -108,6 +108,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   await initShop();
   checkSpinStatus();
   checkExistingDiscount();
+  renderProfile();
   initAdminCheck();
 });
 
@@ -136,6 +137,92 @@ function switchMainTab(tab) {
   document.querySelectorAll('.bottom-nav-btn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.tab === tab);
   });
+
+  if (tab === 'profile') renderProfile();
+}
+
+function getTelegramUser() {
+  return tg?.initDataUnsafe?.user || null;
+}
+
+function getActiveWheelDiscount() {
+  const saved = localStorage.getItem('redshop_discount');
+  const lastSpin = localStorage.getItem('redshop_lastSpin');
+  const today = new Date().toDateString();
+  if (saved && lastSpin === today) {
+    const amount = parseInt(saved, 10);
+    return Number.isFinite(amount) && amount > 0 ? amount : 0;
+  }
+  return state.discount > 0 ? state.discount : 0;
+}
+
+function onProfileAvatarError() {
+  const img = document.getElementById('profileAvatar');
+  const placeholder = document.getElementById('profileAvatarPlaceholder');
+  if (img) {
+    img.classList.add('hidden');
+    img.removeAttribute('src');
+  }
+  placeholder?.classList.remove('hidden');
+}
+
+function renderProfile() {
+  const user = getTelegramUser();
+  const nameEl = document.getElementById('profileName');
+  const idEl = document.getElementById('profileId');
+  const avatarEl = document.getElementById('profileAvatar');
+  const placeholderEl = document.getElementById('profileAvatarPlaceholder');
+
+  if (user) {
+    const fullName = [user.first_name, user.last_name].filter(Boolean).join(' ') || user.username || 'Пользователь';
+    if (nameEl) nameEl.textContent = fullName;
+    if (idEl) idEl.textContent = `ID: ${user.id}`;
+
+    if (user.photo_url && avatarEl && placeholderEl) {
+      avatarEl.src = user.photo_url;
+      avatarEl.alt = fullName;
+      avatarEl.classList.remove('hidden');
+      placeholderEl.classList.add('hidden');
+    } else {
+      onProfileAvatarError();
+    }
+  } else {
+    if (nameEl) nameEl.textContent = 'Гость';
+    if (idEl) idEl.textContent = 'ID: —';
+    onProfileAvatarError();
+  }
+
+  const balanceEl = document.getElementById('profileBalance');
+  if (balanceEl) balanceEl.textContent = '0';
+
+  const ordersEl = document.getElementById('profileOrdersCount');
+  if (ordersEl) ordersEl.textContent = '0';
+
+  const referralsEl = document.getElementById('profileReferralsCount');
+  if (referralsEl) referralsEl.textContent = '0';
+
+  const discountCard = document.getElementById('profileDiscountCard');
+  const discountAmountEl = document.getElementById('profileDiscountAmount');
+  const activeDiscount = getActiveWheelDiscount();
+
+  if (discountCard && discountAmountEl) {
+    if (activeDiscount > 0) {
+      discountAmountEl.textContent = activeDiscount;
+      discountCard.classList.remove('hidden');
+    } else {
+      discountCard.classList.add('hidden');
+    }
+  }
+}
+
+function profileMenuStub(section) {
+  const labels = {
+    history: 'История заказов',
+    referral: 'Реферальная программа',
+    promo: 'Ввод промокода',
+    interface: 'Оформление интерфейса'
+  };
+  showToast(`${labels[section] || 'Раздел'} — скоро будет доступно`);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1086,6 +1173,7 @@ function applyDiscount(amount, closeRoulette = false) {
     banner.classList.remove('hidden');
   }
   updateCartUI();
+  renderProfile();
   if (closeRoulette) closeModal('rouletteModal');
 }
 
@@ -1096,6 +1184,7 @@ function removeDiscount() {
   localStorage.setItem('redshop_lastSpin', new Date().toDateString()); // keep spin used
   document.getElementById('discountBanner').classList.add('hidden');
   updateCartUI();
+  renderProfile();
   showToast('Скидка убрана');
 }
 

@@ -91,8 +91,69 @@
 
 <!-- ═══════════════════ TAB: PROFILE ═══════════════════ -->
 <div id="profileView" class="main-tab-view hidden">
-  <div class="stub-screen">
-    <h1 class="stub-title">Профиль</h1>
+  <div class="profile-page">
+    <div class="profile-header">
+      <div class="profile-avatar-wrap">
+        <img id="profileAvatar" class="profile-avatar hidden" alt="" onerror="onProfileAvatarError()">
+        <div id="profileAvatarPlaceholder" class="profile-avatar profile-avatar-placeholder">👤</div>
+      </div>
+      <h1 class="profile-name" id="profileName">Гость</h1>
+      <p class="profile-id" id="profileId">ID: —</p>
+    </div>
+
+    <div class="profile-balance-card">
+      <div class="profile-balance-info">
+        <div class="profile-balance-label">Ваш баланс</div>
+        <div class="profile-balance-value">
+          <span id="profileBalance">0</span>
+          <span class="profile-balance-unit">сом</span>
+        </div>
+      </div>
+      <div class="profile-balance-icon" aria-hidden="true">💰</div>
+    </div>
+
+    <div class="profile-stats-row">
+      <div class="profile-stat-card">
+        <div class="profile-stat-value" id="profileOrdersCount">0</div>
+        <div class="profile-stat-label">Всего заказов</div>
+      </div>
+      <div class="profile-stat-card">
+        <div class="profile-stat-value" id="profileReferralsCount">0</div>
+        <div class="profile-stat-label">Рефералов приглашено</div>
+      </div>
+    </div>
+
+    <div id="profileDiscountCard" class="profile-discount-card hidden">
+      <div class="profile-discount-icon" aria-hidden="true">🎰</div>
+      <div class="profile-discount-info">
+        <div class="profile-discount-title">Скидка из колеса</div>
+        <div class="profile-discount-amount"><span id="profileDiscountAmount">0</span> сом</div>
+        <div class="profile-discount-note">Действует 24 часа</div>
+      </div>
+    </div>
+
+    <div class="profile-menu">
+      <button type="button" class="profile-menu-item" onclick="profileMenuStub('history')">
+        <span class="profile-menu-icon" aria-hidden="true">📋</span>
+        <span class="profile-menu-text">История заказов</span>
+        <span class="profile-menu-arrow">›</span>
+      </button>
+      <button type="button" class="profile-menu-item" onclick="profileMenuStub('referral')">
+        <span class="profile-menu-icon" aria-hidden="true">👥</span>
+        <span class="profile-menu-text">Реферальная программа</span>
+        <span class="profile-menu-arrow">›</span>
+      </button>
+      <button type="button" class="profile-menu-item" onclick="profileMenuStub('promo')">
+        <span class="profile-menu-icon" aria-hidden="true">🏷️</span>
+        <span class="profile-menu-text">Ввести промокод</span>
+        <span class="profile-menu-arrow">›</span>
+      </button>
+      <button type="button" class="profile-menu-item" onclick="profileMenuStub('interface')">
+        <span class="profile-menu-icon" aria-hidden="true">🎨</span>
+        <span class="profile-menu-text">Оформление интерфейса</span>
+        <span class="profile-menu-arrow">›</span>
+      </button>
+    </div>
   </div>
 </div>
 
