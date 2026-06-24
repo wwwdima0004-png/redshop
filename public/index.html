@@ -225,6 +225,17 @@
           <span>🎁 Скидка:</span>
           <span id="cartDiscountDisplay" class="discount-value">−0 сом</span>
         </div>
+        <div class="balance-toggle-wrap hidden" id="cartBalanceToggleWrap">
+          <label class="balance-toggle">
+            <input type="checkbox" id="cartUseBalance" onchange="onBalanceToggleChange('cart')">
+            <span class="balance-toggle-box"></span>
+            <span class="balance-toggle-text">Списать с баланса (<span id="cartBalanceAvailable">0</span> сом)</span>
+          </label>
+        </div>
+        <div class="summary-row balance-row hidden" id="cartBalanceRow">
+          <span>💳 С баланса:</span>
+          <span id="cartBalanceUsed" class="discount-value">−0 сом</span>
+        </div>
         <div class="summary-row total-row">
           <span>Итого:</span>
           <span id="cartTotal">0 сом</span>
@@ -289,6 +300,14 @@
     </div>
     <div class="modal-body">
       <div id="buyOrderSummary" class="buy-order-summary"></div>
+      <div id="buyOrderTotals" class="buy-order-totals"></div>
+      <div class="balance-toggle-wrap hidden" id="buyBalanceToggleWrap">
+        <label class="balance-toggle">
+          <input type="checkbox" id="buyUseBalance" onchange="onBalanceToggleChange('buy')">
+          <span class="balance-toggle-box"></span>
+          <span class="balance-toggle-text">Списать с баланса (<span id="buyBalanceAvailable">0</span> сом)</span>
+        </label>
+      </div>
       <form id="buyOrderForm" onsubmit="submitBuyOrder(event)">
         <div class="form-group">
           <label>Телефон *</label>

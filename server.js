@@ -59,6 +59,66 @@ function ensureDataFiles() {
   if (!fs.existsSync(path.join(DATA_DIR, 'orders.json'))) writeJSON('orders.json', []);
   if (!fs.existsSync(path.join(DATA_DIR, 'users.json'))) writeJSON('users.json', []);
   if (!fs.existsSync(path.join(DATA_DIR, 'messages.json'))) writeJSON('messages.json', {});
+
+  migrateUsersBalance();
+}
+
+function migrateUsersBalance() {
+  const users = readJSON('users.json');
+  if (!Array.isArray(users)) return;
+  let changed = false;
+  users.forEach(u => {
+    if (typeof u.balance !== 'number') {
+      u.balance = 0;
+      changed = true;
+    }
+  });
+  if (changed) writeJSON('users.json', users);
+}
+
+function ensureUserRecord(userId, profile = {}) {
+  const users = readJSON('users.json');
+  let user = users.find(u => Number(u.id) === Number(userId));
+  if (!user) {
+    user = {
+      id: userId,
+      username: profile.username || '',
+      firstName: profile.firstName || '',
+      lastName: profile.lastName || '',
+      firstSeen: new Date().toISOString(),
+      balance: 0
+    };
+    users.push(user);
+    writeJSON('users.json', users);
+    return user;
+  }
+  if (typeof user.balance !== 'number') {
+    user.balance = 0;
+    writeJSON('users.json', users);
+  }
+  if (profile.username && !user.username) user.username = profile.username;
+  if (profile.firstName && !user.firstName) user.firstName = profile.firstName;
+  if (profile.lastName && !user.lastName) user.lastName = profile.lastName;
+  return user;
+}
+
+function addBalance(userId, amount) {
+  const users = readJSON('users.json');
+  const user = users.find(u => Number(u.id) === Number(userId));
+  if (!user) return null;
+  if (typeof user.balance !== 'number') user.balance = 0;
+  user.balance = Math.max(0, Math.round(user.balance + amount));
+  writeJSON('users.json', users);
+  return user.balance;
+}
+
+function getTelegramUserFromInitData(initData) {
+  try {
+    const params = new URLSearchParams(initData);
+    return JSON.parse(decodeURIComponent(params.get('user') || '{}'));
+  } catch {
+    return {};
+  }
 }
 
 function defaultCategories() {
@@ -371,11 +431,75 @@ app.get('/api/orders/my', (req, res) => {
   res.json(mine);
 });
 
+app.get('/api/users/me', (req, res) => {
+  const initData = req.headers['x-telegram-init-data'];
+  const verifiedUserId = getVerifiedTelegramUserId(initData);
+  if (!verifiedUserId) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  const tgUser = getTelegramUserFromInitData(initData);
+  const user = ensureUserRecord(verifiedUserId, {
+    username: tgUser.username || '',
+    firstName: tgUser.first_name || '',
+    lastName: tgUser.last_name || ''
+  });
+  res.json({
+    id: user.id,
+    username: user.username,
+    firstName: user.firstName,
+    lastName: user.lastName,
+    balance: user.balance,
+    firstSeen: user.firstSeen
+  });
+});
+
 app.post('/api/orders', (req, res) => {
+  const initData = req.headers['x-telegram-init-data'];
+  const verifiedUserId = getVerifiedTelegramUserId(initData);
+  const body = { ...req.body };
+
+  if (verifiedUserId) {
+    const tgUser = getTelegramUserFromInitData(initData);
+    ensureUserRecord(verifiedUserId, {
+      username: tgUser.username || '',
+      firstName: tgUser.first_name || '',
+      lastName: tgUser.last_name || ''
+    });
+    body.userId = verifiedUserId;
+    if (!body.userName) {
+      body.userName = `${tgUser.first_name || ''} ${tgUser.last_name || ''}`.trim() || tgUser.username || String(verifiedUserId);
+    }
+    if (!body.username) body.username = tgUser.username || '';
+  }
+
+  const items = Array.isArray(body.items) ? body.items : [];
+  const computedTotal = items.reduce((s, i) => s + (Number(i.price) || 0) * (Number(i.qty) || 1), 0);
+  const total = computedTotal > 0 ? computedTotal : Math.max(0, Number(body.total) || 0);
+  const discount = Math.min(Math.max(0, Math.round(Number(body.discount) || 0)), total);
+  const afterDiscount = Math.max(0, total - discount);
+
+  let balanceUsed = 0;
+  const useBalanceRequested = Math.max(0, Math.round(Number(body.useBalance) || 0));
+
+  if (verifiedUserId && useBalanceRequested > 0) {
+    const users = readJSON('users.json');
+    const user = users.find(u => Number(u.id) === Number(verifiedUserId));
+    const currentBalance = user && typeof user.balance === 'number' ? user.balance : 0;
+    balanceUsed = Math.min(useBalanceRequested, afterDiscount, currentBalance);
+    if (balanceUsed > 0) addBalance(verifiedUserId, -balanceUsed);
+  }
+
+  const finalTotal = Math.max(0, afterDiscount - balanceUsed);
+  delete body.useBalance;
+
   const orders = readJSON('orders.json');
   const order = {
     id: Date.now(),
-    ...req.body,
+    ...body,
+    total,
+    discount,
+    balanceUsed,
+    finalTotal,
     status: 'new',
     createdAt: new Date().toISOString()
   };
@@ -405,6 +529,7 @@ app.post('/api/orders', (req, res) => {
     if (order.comment) text += `\n💬 ${order.comment}`;
     text += `\n\n💰 Сумма: ${order.total || order.finalTotal} сом\n`;
     if (order.discount) text += `🎁 Скидка: −${order.discount} сом\n`;
+    if (order.balanceUsed) text += `💳 С баланса: −${order.balanceUsed} сом\n`;
     text += `✅ Итого: *${order.finalTotal} сом*`;
     ADMIN_IDS.forEach(id => bot.sendMessage(id, text, { parse_mode: 'Markdown' }).catch(() => {}));
   }
@@ -413,7 +538,14 @@ app.post('/api/orders', (req, res) => {
     sendWelcomeMessage(order.userId).catch(() => {});
   }
 
-  res.json(order);
+  let newBalance = null;
+  if (verifiedUserId) {
+    const users = readJSON('users.json');
+    const u = users.find(x => Number(x.id) === Number(verifiedUserId));
+    if (u) newBalance = u.balance;
+  }
+
+  res.json({ ...order, newBalance });
 });
 
 app.put('/api/orders/:id/status', requireAdmin, (req, res) => {
@@ -618,8 +750,12 @@ async function initBot(retryCount = 0) {
           username: user.username || '',
           firstName: user.first_name || '',
           lastName: user.last_name || '',
-          firstSeen: new Date().toISOString()
+          firstSeen: new Date().toISOString(),
+          balance: 0
         });
+        writeJSON('users.json', users);
+      } else if (typeof existing.balance !== 'number') {
+        existing.balance = 0;
         writeJSON('users.json', users);
       }
 

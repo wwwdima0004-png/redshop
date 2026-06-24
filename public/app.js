@@ -29,7 +29,10 @@ const state = {
   spinning: false,
   buyProductId: null,
   currentMainTab: 'catalog',
-  myOrdersCount: null
+  myOrdersCount: null,
+  userBalance: 0,
+  cartUseBalance: false,
+  buyUseBalance: false
 };
 
 // ─── API ─────────────────────────────────────────────────────────────────────
@@ -109,6 +112,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   await initShop();
   checkSpinStatus();
   checkExistingDiscount();
+  refreshUserBalance();
   renderProfile();
   initAdminCheck();
 });
@@ -209,14 +213,17 @@ function renderProfile() {
   }
 
   const balanceEl = document.getElementById('profileBalance');
-  if (balanceEl) balanceEl.textContent = '0';
+  if (balanceEl) balanceEl.textContent = String(state.userBalance ?? 0);
+
+  if (getTelegramUser()) {
+    refreshMyOrdersCount();
+    refreshUserBalance();
+  }
 
   const ordersEl = document.getElementById('profileOrdersCount');
   if (ordersEl) {
     ordersEl.textContent = state.myOrdersCount != null ? String(state.myOrdersCount) : '0';
   }
-
-  if (getTelegramUser()) refreshMyOrdersCount();
 
   const referralsEl = document.getElementById('profileReferralsCount');
   if (referralsEl) referralsEl.textContent = '0';
@@ -264,6 +271,91 @@ async function refreshMyOrdersCount() {
     const ordersEl = document.getElementById('profileOrdersCount');
     if (ordersEl) ordersEl.textContent = String(state.myOrdersCount);
   } catch {}
+}
+
+async function fetchMeUser() {
+  const initData = getTelegramInitData();
+  if (!initData) return null;
+  const res = await fetch(`${API}/users/me`, {
+    headers: { 'x-telegram-init-data': initData }
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Не удалось загрузить профиль');
+  return data;
+}
+
+async function refreshUserBalance() {
+  try {
+    const me = await fetchMeUser();
+    if (me && typeof me.balance === 'number') {
+      state.userBalance = me.balance;
+      const balanceEl = document.getElementById('profileBalance');
+      if (balanceEl) balanceEl.textContent = String(me.balance);
+    }
+  } catch {}
+}
+
+function calcOrderPayment(subtotal, discount = 0, useBalance = false) {
+  const disc = Math.min(Math.max(0, discount), subtotal);
+  const afterDiscount = Math.max(0, subtotal - disc);
+  const balanceUsed = useBalance && state.userBalance > 0
+    ? Math.min(state.userBalance, afterDiscount)
+    : 0;
+  const finalTotal = Math.max(0, afterDiscount - balanceUsed);
+  return { subtotal, discount: disc, afterDiscount, balanceUsed, finalTotal };
+}
+
+function onBalanceToggleChange(context) {
+  if (context === 'cart') {
+    state.cartUseBalance = document.getElementById('cartUseBalance')?.checked || false;
+    renderCartItems();
+  } else if (context === 'buy') {
+    state.buyUseBalance = document.getElementById('buyUseBalance')?.checked || false;
+    updateBuyOrderTotals();
+  }
+}
+
+function updateBalanceToggleUI(context, subtotal, discount) {
+  const { afterDiscount } = calcOrderPayment(subtotal, discount, false);
+  const canUse = state.userBalance > 0 && afterDiscount > 0 && getTelegramInitData();
+
+  if (context === 'cart') {
+    const wrap = document.getElementById('cartBalanceToggleWrap');
+    const avail = document.getElementById('cartBalanceAvailable');
+    if (wrap) wrap.classList.toggle('hidden', !canUse);
+    if (avail) avail.textContent = String(state.userBalance);
+    if (!canUse) {
+      state.cartUseBalance = false;
+      const cb = document.getElementById('cartUseBalance');
+      if (cb) cb.checked = false;
+    }
+  } else if (context === 'buy') {
+    const wrap = document.getElementById('buyBalanceToggleWrap');
+    const avail = document.getElementById('buyBalanceAvailable');
+    if (wrap) wrap.classList.toggle('hidden', !canUse);
+    if (avail) avail.textContent = String(state.userBalance);
+    if (!canUse) {
+      state.buyUseBalance = false;
+      const cb = document.getElementById('buyUseBalance');
+      if (cb) cb.checked = false;
+    }
+  }
+}
+
+function updateBuyOrderTotals() {
+  const product = state.products.find(p => p.id === state.buyProductId);
+  if (!product) return;
+  const subtotal = product.price;
+  const payment = calcOrderPayment(subtotal, state.discount, state.buyUseBalance);
+  const totalsEl = document.getElementById('buyOrderTotals');
+  if (!totalsEl) return;
+
+  totalsEl.innerHTML = `
+    <div class="buy-total-row"><span>Сумма:</span><span>${payment.subtotal} сом</span></div>
+    ${payment.discount > 0 ? `<div class="buy-total-row discount"><span>🎁 Скидка:</span><span>−${payment.discount} сом</span></div>` : ''}
+    ${payment.balanceUsed > 0 ? `<div class="buy-total-row discount"><span>💳 С баланса:</span><span>−${payment.balanceUsed} сом</span></div>` : ''}
+    <div class="buy-total-row final"><span>Итого:</span><span>${payment.finalTotal} сом</span></div>
+  `;
 }
 
 function formatOrderDate(iso) {
@@ -623,6 +715,7 @@ function openBuyModal(productId) {
   if (!product || !product.available) return;
 
   state.buyProductId = productId;
+  state.buyUseBalance = false;
   const categoryName = getCategoryName(product.categoryId);
   const summary = document.getElementById('buyOrderSummary');
   summary.innerHTML = `
@@ -634,6 +727,14 @@ function openBuyModal(productId) {
   document.getElementById('buyPhone').value = '';
   document.getElementById('buyAddress').value = '';
   document.getElementById('buyComment').value = '';
+  const buyCb = document.getElementById('buyUseBalance');
+  if (buyCb) buyCb.checked = false;
+
+  refreshUserBalance().then(() => {
+    updateBalanceToggleUI('buy', product.price, state.discount);
+    updateBuyOrderTotals();
+  });
+
   openModal('buyOrderModal');
 }
 
@@ -655,6 +756,7 @@ async function submitBuyOrder(e) {
 
   const tgUser = tg?.initDataUnsafe?.user;
   const categoryName = getCategoryName(product.categoryId);
+  const payment = calcOrderPayment(product.price, state.discount, state.buyUseBalance);
   const orderData = {
     userId: tgUser?.id || null,
     userName: tgUser ? `${tgUser.first_name || ''} ${tgUser.last_name || ''}`.trim() : 'Аноним',
@@ -673,15 +775,18 @@ async function submitBuyOrder(e) {
       price: product.price,
       qty: 1
     }],
-    total: product.price,
-    finalTotal: product.price,
-    discount: 0
+    total: payment.subtotal,
+    discount: payment.discount,
+    useBalance: payment.balanceUsed,
+    finalTotal: payment.finalTotal
   };
 
   try {
-    await submitOrderViaAPI(orderData);
+    const result = await submitOrderViaAPI(orderData);
+    if (typeof result.newBalance === 'number') state.userBalance = result.newBalance;
     closeModal('buyOrderModal');
     state.buyProductId = null;
+    state.buyUseBalance = false;
     showToast('Заказ оформлен ✓', 'success');
     redirectToBot();
   } catch (err) {
@@ -705,7 +810,10 @@ function redirectToBot() {
 }
 
 function openCart() {
-  renderCartItems();
+  state.cartUseBalance = false;
+  const cb = document.getElementById('cartUseBalance');
+  if (cb) cb.checked = false;
+  refreshUserBalance().then(() => renderCartItems());
   openModal('cartModal');
 }
 
@@ -750,17 +858,29 @@ function renderCartItems() {
   });
 
   const subtotal = state.cart.reduce((s, c) => s + c.price * c.qty, 0);
-  const final = Math.max(0, subtotal - state.discount);
+  const payment = calcOrderPayment(subtotal, state.discount, state.cartUseBalance);
 
-  subtotalEl.textContent = `${subtotal} сом`;
-  totalEl.textContent = `${final} сом`;
+  subtotalEl.textContent = `${payment.subtotal} сом`;
+  totalEl.textContent = `${payment.finalTotal} сом`;
   checkoutBtn.disabled = false;
 
-  if (state.discount > 0) {
+  if (payment.discount > 0) {
     discountRow.classList.remove('hidden');
-    discountDisplay.textContent = `−${state.discount} сом`;
+    discountDisplay.textContent = `−${payment.discount} сом`;
   } else {
     discountRow.classList.add('hidden');
+  }
+
+  updateBalanceToggleUI('cart', subtotal, state.discount);
+  const balanceRow = document.getElementById('cartBalanceRow');
+  const balanceUsedEl = document.getElementById('cartBalanceUsed');
+  if (balanceRow && balanceUsedEl) {
+    if (payment.balanceUsed > 0) {
+      balanceRow.classList.remove('hidden');
+      balanceUsedEl.textContent = `−${payment.balanceUsed} сом`;
+    } else {
+      balanceRow.classList.add('hidden');
+    }
   }
 }
 
@@ -773,20 +893,41 @@ async function checkout() {
 
   const tgUser = tg?.initDataUnsafe?.user;
   const subtotal = state.cart.reduce((s, c) => s + c.price * c.qty, 0);
-  const final = Math.max(0, subtotal - state.discount);
+  const payment = calcOrderPayment(subtotal, state.discount, state.cartUseBalance);
 
   const orderData = {
     userId: tgUser?.id || null,
     userName: tgUser ? `${tgUser.first_name || ''} ${tgUser.last_name || ''}`.trim() : 'Аноним',
     username: tgUser?.username || '',
     items: state.cart.map(c => ({ id: c.id, name: c.name, price: c.price, qty: c.qty })),
-    total: subtotal,
-    discount: state.discount,
-    finalTotal: final
+    total: payment.subtotal,
+    discount: payment.discount,
+    useBalance: payment.balanceUsed,
+    finalTotal: payment.finalTotal
   };
 
   // Close cart, reset state
   closeModal('cartModal');
+
+  const savedCart = [...state.cart];
+  const useBalanceFlow = payment.balanceUsed > 0;
+
+  // Balance orders must go through API (server validates and deducts)
+  if (useBalanceFlow || !(tg && tg.sendData && tg.initDataUnsafe?.user)) {
+    try {
+      const result = await submitOrderViaAPI(orderData);
+      if (typeof result.newBalance === 'number') state.userBalance = result.newBalance;
+      state.cart = [];
+      state.discount = 0;
+      state.cartUseBalance = false;
+      localStorage.removeItem('redshop_discount');
+      updateCartUI();
+      showOrderSuccess(orderData, savedCart);
+    } catch {
+      showToast('Ошибка оформления заказа', 'error');
+    }
+    return;
+  }
 
   // If Telegram Web App is available, use sendData (bot receives the order)
   if (tg && tg.sendData && tg.initDataUnsafe?.user) {
@@ -816,8 +957,17 @@ async function checkout() {
 }
 
 async function submitOrderViaAPI(orderData) {
-  const res = await api('POST', '/orders', orderData);
-  return res;
+  const initData = getTelegramInitData();
+  const headers = { 'Content-Type': 'application/json' };
+  if (initData) headers['x-telegram-init-data'] = initData;
+  const res = await fetch(`${API}/orders`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(orderData)
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Ошибка сервера');
+  return data;
 }
 
 function showOrderSuccess(orderData, cartItems) {
@@ -827,7 +977,9 @@ function showOrderSuccess(orderData, cartItems) {
     const lines = cartItems.map(c => `• ${c.name} ×${c.qty} — ${c.price * c.qty} сом`).join('<br>');
     const discountLine = orderData.discount > 0
       ? `<br><span style="color:#4ade80">🎁 Скидка: −${orderData.discount} сом</span>` : '';
-    infoEl.innerHTML = `${lines}${discountLine}<br><strong style="color:#fff">Итого: ${orderData.finalTotal} сом</strong>`;
+    const balanceLine = orderData.useBalance > 0
+      ? `<br><span style="color:#4ade80">💳 С баланса: −${orderData.useBalance} сом</span>` : '';
+    infoEl.innerHTML = `${lines}${discountLine}${balanceLine}<br><strong style="color:#fff">Итого: ${orderData.finalTotal} сом</strong>`;
   }
 
   // Reset success animation
