@@ -138,12 +138,12 @@
         <span class="profile-menu-text">История заказов</span>
         <span class="profile-menu-arrow">›</span>
       </button>
-      <button type="button" class="profile-menu-item" onclick="profileMenuStub('referral')">
+      <button type="button" class="profile-menu-item" onclick="openReferralProgram()">
         <span class="profile-menu-icon" aria-hidden="true">👥</span>
         <span class="profile-menu-text">Реферальная программа</span>
         <span class="profile-menu-arrow">›</span>
       </button>
-      <button type="button" class="profile-menu-item" onclick="profileMenuStub('promo')">
+      <button type="button" class="profile-menu-item" onclick="openPromoScreen()">
         <span class="profile-menu-icon" aria-hidden="true">🏷️</span>
         <span class="profile-menu-text">Ввести промокод</span>
         <span class="profile-menu-arrow">›</span>
@@ -166,6 +166,47 @@
     <div id="myOrdersEmpty" class="empty-state hidden">
       <div class="empty-icon">📋</div>
       <div>У вас пока нет заказов</div>
+    </div>
+  </div>
+
+  <div id="referralScreen" class="profile-sub-screen hidden">
+    <div class="order-history-header">
+      <button type="button" class="catalog-back-btn" onclick="closeReferralScreen()">← Назад</button>
+      <h2 class="order-history-title">Реферальная программа</h2>
+    </div>
+    <div class="referral-content">
+      <p class="referral-desc">Приглашайте друзей и получайте <strong>+30 сом</strong> на баланс — вы и ваш друг.</p>
+      <div class="referral-stat-card">
+        <div class="referral-stat-value" id="referralScreenCount">0</div>
+        <div class="referral-stat-label">Приглашено друзей</div>
+      </div>
+      <div class="referral-link-box">
+        <label class="referral-link-label">Ваша ссылка</label>
+        <div class="referral-link-row">
+          <input type="text" id="referralLinkInput" class="form-input referral-link-input" readonly>
+        </div>
+      </div>
+      <div class="referral-actions">
+        <button type="button" class="btn-primary btn-full" onclick="copyReferralLink()">📋 Копировать ссылку</button>
+        <button type="button" class="btn-outline btn-full" onclick="shareReferralLink()">📤 Поделиться</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="promoScreen" class="profile-sub-screen hidden">
+    <div class="order-history-header">
+      <button type="button" class="catalog-back-btn" onclick="closePromoScreen()">← Назад</button>
+      <h2 class="order-history-title">Промокод</h2>
+    </div>
+    <div class="promo-content">
+      <p class="referral-desc">Введите промокод для начисления бонуса, скидки или бесплатного заказа.</p>
+      <div class="form-group">
+        <label>Промокод</label>
+        <input type="text" id="promoCodeInput" class="form-input" placeholder="Например: RED100" autocomplete="off">
+      </div>
+      <button type="button" class="btn-primary btn-full" id="promoActivateBtn" onclick="activatePromoCode()">Активировать</button>
+      <div id="promoResult" class="promo-result hidden"></div>
+      <div id="promoPendingInfo" class="promo-pending-info hidden"></div>
     </div>
   </div>
 </div>
@@ -407,6 +448,9 @@
     <button class="admin-nav-btn" data-tab="stats" onclick="switchAdminTab('stats')">
       <span>📊</span><span>Статистика</span>
     </button>
+    <button class="admin-nav-btn" data-tab="promocodes" onclick="switchAdminTab('promocodes')">
+      <span>🏷️</span><span>Промокоды</span>
+    </button>
   </nav>
 
   <!-- ── TAB: Products ── -->
@@ -586,6 +630,45 @@
       <h4 class="section-title" style="margin-top:24px">Топ товаров</h4>
       <div id="statsTopProducts" class="top-products-list"></div>
       <button class="btn-outline btn-full" style="margin-top:16px" onclick="loadStats()">🔄 Обновить</button>
+    </div>
+  </div>
+
+  <!-- ── TAB: Promocodes ── -->
+  <div id="tab-promocodes" class="admin-tab hidden">
+    <div class="tab-content">
+      <h3 class="tab-title">Промокоды</h3>
+      <div class="card">
+        <h4>Создать промокод</h4>
+        <form id="addPromoForm" onsubmit="addPromocode(event)">
+          <div class="form-row">
+            <div class="form-group">
+              <label>Код</label>
+              <input type="text" id="addPromoCode" class="form-input" placeholder="RED100" required>
+            </div>
+            <div class="form-group">
+              <label>Тип</label>
+              <select id="addPromoType" class="form-input" required>
+                <option value="balance">Баланс (сом)</option>
+                <option value="discount">Скидка на заказ (сом)</option>
+                <option value="free_order">Бесплатный заказ</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Значение (сом)</label>
+              <input type="number" id="addPromoValue" class="form-input" placeholder="100" min="0" value="0">
+            </div>
+            <div class="form-group">
+              <label>Лимит активаций</label>
+              <input type="number" id="addPromoLimit" class="form-input" placeholder="1" min="1" value="1">
+            </div>
+          </div>
+          <button type="submit" class="btn-primary">➕ Создать промокод</button>
+        </form>
+      </div>
+      <h4 class="section-title">Список промокодов</h4>
+      <div id="adminPromocodesList" class="admin-promocodes-list"></div>
     </div>
   </div>
 

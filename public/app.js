@@ -32,7 +32,11 @@ const state = {
   myOrdersCount: null,
   userBalance: 0,
   cartUseBalance: false,
-  buyUseBalance: false
+  buyUseBalance: false,
+  referralCount: 0,
+  referralLink: '',
+  promoDiscount: 0,
+  pendingFreeOrder: false
 };
 
 // ─── API ─────────────────────────────────────────────────────────────────────
@@ -144,11 +148,33 @@ function switchMainTab(tab, options = {}) {
   });
 
   if (tab === 'profile') {
-    if (options.resetProfileSub !== false) closeOrderHistory(true);
+    if (options.resetProfileSub !== false) closeProfileSubscreens(true);
     renderProfile();
   } else {
-    closeOrderHistory(false);
+    closeProfileSubscreens(false);
   }
+}
+
+function showProfileMain() {
+  document.getElementById('profileMain')?.classList.remove('hidden');
+}
+
+function hideAllProfileSubscreens() {
+  ['orderHistoryScreen', 'referralScreen', 'promoScreen'].forEach(id => {
+    document.getElementById(id)?.classList.add('hidden');
+  });
+}
+
+function closeProfileSubscreens(showMain = true) {
+  hideAllProfileSubscreens();
+  if (showMain) showProfileMain();
+}
+
+function openProfileSubscreen(screenId) {
+  switchMainTab('profile', { resetProfileSub: false });
+  hideAllProfileSubscreens();
+  document.getElementById('profileMain')?.classList.add('hidden');
+  document.getElementById(screenId)?.classList.remove('hidden');
 }
 
 function getTelegramInitData() {
@@ -218,6 +244,7 @@ function renderProfile() {
   if (getTelegramUser()) {
     refreshMyOrdersCount();
     refreshUserBalance();
+    refreshReferralStats();
   }
 
   const ordersEl = document.getElementById('profileOrdersCount');
@@ -226,7 +253,7 @@ function renderProfile() {
   }
 
   const referralsEl = document.getElementById('profileReferralsCount');
-  if (referralsEl) referralsEl.textContent = '0';
+  if (referralsEl) referralsEl.textContent = String(state.referralCount ?? 0);
 
   const discountCard = document.getElementById('profileDiscountCard');
   const discountAmountEl = document.getElementById('profileDiscountAmount');
@@ -244,11 +271,148 @@ function renderProfile() {
 
 function profileMenuStub(section) {
   const labels = {
-    referral: 'Реферальная программа',
-    promo: 'Ввод промокода',
     interface: 'Оформление интерфейса'
   };
   showToast(`${labels[section] || 'Раздел'} — скоро будет доступно`);
+}
+
+async function fetchReferralsMy() {
+  const initData = getTelegramInitData();
+  if (!initData) throw new Error('Откройте приложение через Telegram');
+  const res = await fetch(`${API}/referrals/my`, {
+    headers: { 'x-telegram-init-data': initData }
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Не удалось загрузить рефералы');
+  return data;
+}
+
+async function refreshReferralStats() {
+  try {
+    const data = await fetchReferralsMy();
+    state.referralCount = data.count ?? 0;
+    state.referralLink = data.link || '';
+    const el = document.getElementById('profileReferralsCount');
+    if (el) el.textContent = String(state.referralCount);
+  } catch {}
+}
+
+async function openReferralProgram() {
+  openProfileSubscreen('referralScreen');
+  try {
+    const data = await fetchReferralsMy();
+    state.referralCount = data.count ?? 0;
+    state.referralLink = data.link || '';
+    document.getElementById('referralScreenCount').textContent = String(state.referralCount);
+    document.getElementById('referralLinkInput').value = data.link || '';
+    document.getElementById('profileReferralsCount').textContent = String(state.referralCount);
+  } catch (err) {
+    closeProfileSubscreens(true);
+    showToast(err.message || 'Ошибка загрузки', 'error');
+  }
+}
+
+function closeReferralScreen() {
+  closeProfileSubscreens(true);
+}
+
+function copyReferralLink() {
+  const link = document.getElementById('referralLinkInput')?.value || state.referralLink;
+  if (!link) return showToast('Ссылка недоступна', 'error');
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(link).then(() => showToast('Ссылка скопирована ✓', 'success'));
+  } else {
+    const input = document.getElementById('referralLinkInput');
+    input?.select();
+    document.execCommand('copy');
+    showToast('Ссылка скопирована ✓', 'success');
+  }
+}
+
+function shareReferralLink() {
+  const link = document.getElementById('referralLinkInput')?.value || state.referralLink;
+  if (!link) return showToast('Ссылка недоступна', 'error');
+  const text = `Присоединяйся к Red Shop! Получи +30 сом на баланс: ${link}`;
+  if (tg?.openTelegramLink) {
+    tg.openTelegramLink(`https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent('Присоединяйся к Red Shop! +30 сом на баланс')}`);
+  } else if (navigator.share) {
+    navigator.share({ title: 'Red Shop', text, url: link }).catch(() => copyReferralLink());
+  } else {
+    copyReferralLink();
+  }
+}
+
+function openPromoScreen() {
+  openProfileSubscreen('promoScreen');
+  document.getElementById('promoCodeInput').value = '';
+  document.getElementById('promoResult')?.classList.add('hidden');
+  updatePromoPendingInfo();
+}
+
+function closePromoScreen() {
+  closeProfileSubscreens(true);
+}
+
+function updatePromoPendingInfo() {
+  const el = document.getElementById('promoPendingInfo');
+  if (!el) return;
+  const parts = [];
+  if (state.pendingFreeOrder) parts.push('🎁 Бесплатный заказ ожидает применения');
+  if (state.promoDiscount > 0) parts.push(`🏷️ Промо-скидка: ${state.promoDiscount} сом на следующий заказ`);
+  if (parts.length) {
+    el.textContent = parts.join(' · ');
+    el.classList.remove('hidden');
+  } else {
+    el.classList.add('hidden');
+  }
+}
+
+async function activatePromoCode() {
+  const input = document.getElementById('promoCodeInput');
+  const code = input?.value.trim();
+  if (!code) return showToast('Введите промокод', 'error');
+
+  const btn = document.getElementById('promoActivateBtn');
+  const resultEl = document.getElementById('promoResult');
+  if (btn) { btn.disabled = true; btn.textContent = 'Проверка...'; }
+
+  try {
+    const initData = getTelegramInitData();
+    if (!initData) throw new Error('Откройте приложение через Telegram');
+    const res = await fetch(`${API}/promo/activate`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-telegram-init-data': initData
+      },
+      body: JSON.stringify({ code })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Ошибка активации');
+
+    if (typeof data.newBalance === 'number') state.userBalance = data.newBalance;
+    state.promoDiscount = data.pendingPromoDiscount || 0;
+    state.pendingFreeOrder = !!data.pendingFreeOrder;
+
+    document.getElementById('profileBalance').textContent = String(state.userBalance);
+    if (resultEl) {
+      resultEl.textContent = data.message || 'Промокод активирован!';
+      resultEl.className = 'promo-result promo-result-success';
+      resultEl.classList.remove('hidden');
+    }
+    updatePromoPendingInfo();
+    if (input) input.value = '';
+    showToast(data.message || 'Промокод активирован ✓', 'success');
+  } catch (err) {
+    if (resultEl) {
+      resultEl.textContent = err.message || 'Ошибка';
+      resultEl.className = 'promo-result promo-result-error';
+      resultEl.classList.remove('hidden');
+    }
+    showToast(err.message || 'Ошибка активации', 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Активировать'; }
+  }
 }
 
 async function fetchMyOrders() {
@@ -287,22 +451,47 @@ async function fetchMeUser() {
 async function refreshUserBalance() {
   try {
     const me = await fetchMeUser();
-    if (me && typeof me.balance === 'number') {
-      state.userBalance = me.balance;
-      const balanceEl = document.getElementById('profileBalance');
-      if (balanceEl) balanceEl.textContent = String(me.balance);
-    }
+    if (!me) return;
+    if (typeof me.balance === 'number') state.userBalance = me.balance;
+    state.promoDiscount = me.pendingPromoDiscount || 0;
+    state.pendingFreeOrder = !!me.pendingFreeOrder;
+    if (typeof me.referralCount === 'number') state.referralCount = me.referralCount;
+    const balanceEl = document.getElementById('profileBalance');
+    if (balanceEl) balanceEl.textContent = String(state.userBalance);
+    const refEl = document.getElementById('profileReferralsCount');
+    if (refEl) refEl.textContent = String(state.referralCount);
   } catch {}
 }
 
-function calcOrderPayment(subtotal, discount = 0, useBalance = false) {
-  const disc = Math.min(Math.max(0, discount), subtotal);
+function getCombinedDiscount(subtotal) {
+  if (state.pendingFreeOrder) return subtotal;
+  const wheel = Math.min(state.discount || 0, subtotal);
+  const promo = Math.min(state.promoDiscount || 0, Math.max(0, subtotal - wheel));
+  return wheel + promo;
+}
+
+function calcOrderPayment(subtotal, wheelDiscount = null, useBalance = false) {
+  if (state.pendingFreeOrder) {
+    return {
+      subtotal,
+      discount: subtotal,
+      wheelDiscount: state.discount || 0,
+      promoDiscount: state.promoDiscount || 0,
+      afterDiscount: 0,
+      balanceUsed: 0,
+      finalTotal: 0,
+      freeOrder: true
+    };
+  }
+  const wheel = wheelDiscount !== null ? wheelDiscount : (state.discount || 0);
+  const promo = state.promoDiscount || 0;
+  const disc = Math.min(subtotal, wheel + promo);
   const afterDiscount = Math.max(0, subtotal - disc);
   const balanceUsed = useBalance && state.userBalance > 0
     ? Math.min(state.userBalance, afterDiscount)
     : 0;
   const finalTotal = Math.max(0, afterDiscount - balanceUsed);
-  return { subtotal, discount: disc, afterDiscount, balanceUsed, finalTotal };
+  return { subtotal, discount: disc, wheelDiscount: wheel, promoDiscount: promo, afterDiscount, balanceUsed, finalTotal, freeOrder: false };
 }
 
 function onBalanceToggleChange(context) {
@@ -315,9 +504,9 @@ function onBalanceToggleChange(context) {
   }
 }
 
-function updateBalanceToggleUI(context, subtotal, discount) {
-  const { afterDiscount } = calcOrderPayment(subtotal, discount, false);
-  const canUse = state.userBalance > 0 && afterDiscount > 0 && getTelegramInitData();
+function updateBalanceToggleUI(context, subtotal) {
+  const payment = calcOrderPayment(subtotal, null, false);
+  const canUse = state.userBalance > 0 && payment.afterDiscount > 0 && getTelegramInitData() && !state.pendingFreeOrder;
 
   if (context === 'cart') {
     const wrap = document.getElementById('cartBalanceToggleWrap');
@@ -346,13 +535,15 @@ function updateBuyOrderTotals() {
   const product = state.products.find(p => p.id === state.buyProductId);
   if (!product) return;
   const subtotal = product.price;
-  const payment = calcOrderPayment(subtotal, state.discount, state.buyUseBalance);
+  const payment = calcOrderPayment(subtotal, null, state.buyUseBalance);
   const totalsEl = document.getElementById('buyOrderTotals');
   if (!totalsEl) return;
 
   totalsEl.innerHTML = `
     <div class="buy-total-row"><span>Сумма:</span><span>${payment.subtotal} сом</span></div>
-    ${payment.discount > 0 ? `<div class="buy-total-row discount"><span>🎁 Скидка:</span><span>−${payment.discount} сом</span></div>` : ''}
+    ${payment.freeOrder ? `<div class="buy-total-row discount"><span>🎁 Бесплатный заказ</span><span>−${payment.subtotal} сом</span></div>` : ''}
+    ${!payment.freeOrder && payment.wheelDiscount > 0 ? `<div class="buy-total-row discount"><span>🎁 Скидка (рулетка):</span><span>−${Math.min(payment.wheelDiscount, payment.subtotal)} сом</span></div>` : ''}
+    ${!payment.freeOrder && payment.promoDiscount > 0 ? `<div class="buy-total-row discount"><span>🏷️ Промо-скидка:</span><span>−${payment.promoDiscount} сом</span></div>` : ''}
     ${payment.balanceUsed > 0 ? `<div class="buy-total-row discount"><span>💳 С баланса:</span><span>−${payment.balanceUsed} сом</span></div>` : ''}
     <div class="buy-total-row final"><span>Итого:</span><span>${payment.finalTotal} сом</span></div>
   `;
@@ -406,9 +597,7 @@ function renderMyOrders(orders) {
 }
 
 async function openOrderHistory() {
-  switchMainTab('profile', { resetProfileSub: false });
-  document.getElementById('profileMain')?.classList.add('hidden');
-  document.getElementById('orderHistoryScreen')?.classList.remove('hidden');
+  openProfileSubscreen('orderHistoryScreen');
 
   const loading = document.getElementById('myOrdersLoading');
   const list = document.getElementById('myOrdersList');
@@ -425,17 +614,15 @@ async function openOrderHistory() {
     if (ordersEl) ordersEl.textContent = String(state.myOrdersCount);
     renderMyOrders(orders);
   } catch (err) {
-    document.getElementById('profileMain')?.classList.remove('hidden');
-    document.getElementById('orderHistoryScreen')?.classList.add('hidden');
+    closeProfileSubscreens(true);
     showToast(err.message || 'Ошибка загрузки заказов', 'error');
   } finally {
     if (loading) loading.classList.add('hidden');
   }
 }
 
-function closeOrderHistory(showProfile = true) {
-  document.getElementById('orderHistoryScreen')?.classList.add('hidden');
-  if (showProfile) document.getElementById('profileMain')?.classList.remove('hidden');
+function closeOrderHistory() {
+  closeProfileSubscreens(true);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -702,8 +889,8 @@ function updateCartUI() {
 
   // Sticky cart
   const subtotal = state.cart.reduce((s, c) => s + c.price * c.qty, 0);
-  const final = Math.max(0, subtotal - state.discount);
-  stickyTotal.textContent = `${final} сом`;
+  const payment = calcOrderPayment(subtotal, null, false);
+  stickyTotal.textContent = `${payment.finalTotal} сом`;
   stickyCount.textContent = totalItems;
 
   // Checkout button
@@ -731,7 +918,7 @@ function openBuyModal(productId) {
   if (buyCb) buyCb.checked = false;
 
   refreshUserBalance().then(() => {
-    updateBalanceToggleUI('buy', product.price, state.discount);
+    updateBalanceToggleUI('buy', product.price);
     updateBuyOrderTotals();
   });
 
@@ -756,7 +943,7 @@ async function submitBuyOrder(e) {
 
   const tgUser = tg?.initDataUnsafe?.user;
   const categoryName = getCategoryName(product.categoryId);
-  const payment = calcOrderPayment(product.price, state.discount, state.buyUseBalance);
+  const payment = calcOrderPayment(product.price, null, state.buyUseBalance);
   const orderData = {
     userId: tgUser?.id || null,
     userName: tgUser ? `${tgUser.first_name || ''} ${tgUser.last_name || ''}`.trim() : 'Аноним',
@@ -776,7 +963,7 @@ async function submitBuyOrder(e) {
       qty: 1
     }],
     total: payment.subtotal,
-    discount: payment.discount,
+    discount: payment.wheelDiscount,
     useBalance: payment.balanceUsed,
     finalTotal: payment.finalTotal
   };
@@ -784,6 +971,9 @@ async function submitBuyOrder(e) {
   try {
     const result = await submitOrderViaAPI(orderData);
     if (typeof result.newBalance === 'number') state.userBalance = result.newBalance;
+    state.promoDiscount = 0;
+    state.pendingFreeOrder = false;
+    await refreshUserBalance();
     closeModal('buyOrderModal');
     state.buyProductId = null;
     state.buyUseBalance = false;
@@ -858,20 +1048,26 @@ function renderCartItems() {
   });
 
   const subtotal = state.cart.reduce((s, c) => s + c.price * c.qty, 0);
-  const payment = calcOrderPayment(subtotal, state.discount, state.cartUseBalance);
+  const payment = calcOrderPayment(subtotal, null, state.cartUseBalance);
 
   subtotalEl.textContent = `${payment.subtotal} сом`;
   totalEl.textContent = `${payment.finalTotal} сом`;
   checkoutBtn.disabled = false;
 
-  if (payment.discount > 0) {
+  if (payment.freeOrder) {
     discountRow.classList.remove('hidden');
-    discountDisplay.textContent = `−${payment.discount} сом`;
+    discountDisplay.textContent = `Бесплатный заказ (−${payment.subtotal} сом)`;
+  } else if (payment.discount > 0) {
+    discountRow.classList.remove('hidden');
+    const parts = [];
+    if (payment.wheelDiscount > 0) parts.push(`рулетка −${Math.min(payment.wheelDiscount, payment.subtotal)}`);
+    if (payment.promoDiscount > 0) parts.push(`промо −${payment.promoDiscount}`);
+    discountDisplay.textContent = parts.length ? parts.join(', ') : `−${payment.discount} сом`;
   } else {
     discountRow.classList.add('hidden');
   }
 
-  updateBalanceToggleUI('cart', subtotal, state.discount);
+  updateBalanceToggleUI('cart', subtotal);
   const balanceRow = document.getElementById('cartBalanceRow');
   const balanceUsedEl = document.getElementById('cartBalanceUsed');
   if (balanceRow && balanceUsedEl) {
@@ -893,7 +1089,7 @@ async function checkout() {
 
   const tgUser = tg?.initDataUnsafe?.user;
   const subtotal = state.cart.reduce((s, c) => s + c.price * c.qty, 0);
-  const payment = calcOrderPayment(subtotal, state.discount, state.cartUseBalance);
+  const payment = calcOrderPayment(subtotal, null, state.cartUseBalance);
 
   const orderData = {
     userId: tgUser?.id || null,
@@ -901,22 +1097,24 @@ async function checkout() {
     username: tgUser?.username || '',
     items: state.cart.map(c => ({ id: c.id, name: c.name, price: c.price, qty: c.qty })),
     total: payment.subtotal,
-    discount: payment.discount,
+    discount: payment.wheelDiscount,
     useBalance: payment.balanceUsed,
     finalTotal: payment.finalTotal
   };
 
-  // Close cart, reset state
   closeModal('cartModal');
 
   const savedCart = [...state.cart];
-  const useBalanceFlow = payment.balanceUsed > 0;
+  const useApiFlow = payment.balanceUsed > 0 || state.pendingFreeOrder || state.promoDiscount > 0
+    || !(tg && tg.sendData && tg.initDataUnsafe?.user);
 
-  // Balance orders must go through API (server validates and deducts)
-  if (useBalanceFlow || !(tg && tg.sendData && tg.initDataUnsafe?.user)) {
+  if (useApiFlow) {
     try {
       const result = await submitOrderViaAPI(orderData);
       if (typeof result.newBalance === 'number') state.userBalance = result.newBalance;
+      state.promoDiscount = 0;
+      state.pendingFreeOrder = false;
+      await refreshUserBalance();
       state.cart = [];
       state.discount = 0;
       state.cartUseBalance = false;
@@ -929,16 +1127,12 @@ async function checkout() {
     return;
   }
 
-  // If Telegram Web App is available, use sendData (bot receives the order)
   if (tg && tg.sendData && tg.initDataUnsafe?.user) {
     try {
       tg.sendData(JSON.stringify(orderData));
     } catch {
-      // sendData failed — use API fallback
       await submitOrderViaAPI(orderData);
     }
-    // Reset cart after sendData
-    const savedCart = [...state.cart];
     state.cart = [];
     state.discount = 0;
     localStorage.removeItem('redshop_discount');
@@ -1574,6 +1768,7 @@ function switchAdminTab(tab) {
   else if (tab === 'orders') loadAdminOrders();
   else if (tab === 'messages') loadMessages();
   else if (tab === 'stats') loadStats();
+  else if (tab === 'promocodes') loadAdminPromocodes();
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -2324,6 +2519,77 @@ function renderStats(stats, products) {
       <span class="top-product-sales">${p.sales || 0} шт.</span>
     </div>
   `).join('');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ADMIN — PROMOCODES
+// ═══════════════════════════════════════════════════════════════
+
+const PROMO_TYPE_LABELS = {
+  balance: 'Баланс',
+  discount: 'Скидка',
+  free_order: 'Бесплатный заказ'
+};
+
+async function loadAdminPromocodes() {
+  try {
+    const promos = await api('GET', '/promocodes', null, true);
+    renderAdminPromocodes(promos);
+  } catch {
+    showToast('Ошибка загрузки промокодов', 'error');
+  }
+}
+
+function renderAdminPromocodes(promos) {
+  const list = document.getElementById('adminPromocodesList');
+  if (!list) return;
+  if (!promos.length) {
+    list.innerHTML = '<div class="empty-state" style="padding:20px"><div>Промокодов пока нет</div></div>';
+    return;
+  }
+  list.innerHTML = promos.map(p => {
+    const used = (p.activatedBy || []).length;
+    const limit = Number(p.maxActivations) || 0;
+    const limitText = limit > 0 ? `${used}/${limit}` : `${used} / ∞`;
+    const valueText = p.type === 'free_order' ? '—' : `${p.value} сом`;
+    return `
+      <div class="admin-promo-item">
+        <div class="admin-promo-main">
+          <div class="admin-promo-code">${escapeHtml(p.code)}</div>
+          <div class="admin-promo-meta">${PROMO_TYPE_LABELS[p.type] || p.type} · ${valueText} · активаций: ${limitText}</div>
+        </div>
+        <button class="btn-sm btn-sm-red" type="button" data-code="${escapeHtml(p.code)}" onclick="deletePromocode(this.dataset.code)">🗑</button>
+      </div>
+    `;
+  }).join('');
+}
+
+async function addPromocode(e) {
+  e.preventDefault();
+  const code = document.getElementById('addPromoCode').value.trim();
+  const type = document.getElementById('addPromoType').value;
+  const value = parseInt(document.getElementById('addPromoValue').value, 10) || 0;
+  const maxActivations = parseInt(document.getElementById('addPromoLimit').value, 10) || 1;
+  try {
+    await api('POST', '/promocodes', { code, type, value, maxActivations }, true);
+    document.getElementById('addPromoForm').reset();
+    document.getElementById('addPromoLimit').value = '1';
+    showToast('Промокод создан ✓', 'success');
+    loadAdminPromocodes();
+  } catch (err) {
+    showToast(err.message || 'Ошибка создания', 'error');
+  }
+}
+
+async function deletePromocode(code) {
+  if (!confirm(`Удалить промокод ${code}?`)) return;
+  try {
+    await api('DELETE', `/promocodes/${encodeURIComponent(code)}`, null, true);
+    showToast('Промокод удалён', 'success');
+    loadAdminPromocodes();
+  } catch (err) {
+    showToast(err.message || 'Ошибка удаления', 'error');
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════

@@ -61,6 +61,33 @@ function ensureDataFiles() {
   if (!fs.existsSync(path.join(DATA_DIR, 'messages.json'))) writeJSON('messages.json', {});
 
   migrateUsersBalance();
+  migrateUsersReferrer();
+
+  if (!fs.existsSync(path.join(DATA_DIR, 'promocodes.json'))) writeJSON('promocodes.json', []);
+}
+
+const REFERRAL_BONUS = 30;
+const BOT_USERNAME = 'Red1shopbot';
+
+function migrateUsersReferrer() {
+  const users = readJSON('users.json');
+  if (!Array.isArray(users)) return;
+  let changed = false;
+  users.forEach(u => {
+    if (u.referrerId === undefined) {
+      u.referrerId = null;
+      changed = true;
+    }
+    if (u.pendingPromoDiscount === undefined) {
+      u.pendingPromoDiscount = 0;
+      changed = true;
+    }
+    if (u.pendingFreeOrder === undefined) {
+      u.pendingFreeOrder = false;
+      changed = true;
+    }
+  });
+  if (changed) writeJSON('users.json', users);
 }
 
 function migrateUsersBalance() {
@@ -86,7 +113,10 @@ function ensureUserRecord(userId, profile = {}) {
       firstName: profile.firstName || '',
       lastName: profile.lastName || '',
       firstSeen: new Date().toISOString(),
-      balance: 0
+      balance: 0,
+      referrerId: null,
+      pendingPromoDiscount: 0,
+      pendingFreeOrder: false
     };
     users.push(user);
     writeJSON('users.json', users);
@@ -119,6 +149,47 @@ function getTelegramUserFromInitData(initData) {
   } catch {
     return {};
   }
+}
+
+function getStartParam(text) {
+  if (!text || typeof text !== 'string') return null;
+  const parts = text.trim().split(/\s+/);
+  return parts.length > 1 ? parts.slice(1).join(' ') : null;
+}
+
+function parseReferrerId(startParam) {
+  if (!startParam || !startParam.startsWith('ref_')) return null;
+  const id = parseInt(startParam.slice(4), 10);
+  return Number.isFinite(id) && id > 0 ? id : null;
+}
+
+function processReferral(userId, referrerId) {
+  if (!referrerId || Number(referrerId) === Number(userId)) return false;
+  const users = readJSON('users.json');
+  const user = users.find(u => Number(u.id) === Number(userId));
+  const referrer = users.find(u => Number(u.id) === Number(referrerId));
+  if (!user || !referrer || user.referrerId) return false;
+
+  user.referrerId = referrerId;
+  writeJSON('users.json', users);
+  addBalance(userId, REFERRAL_BONUS);
+  addBalance(referrerId, REFERRAL_BONUS);
+  return true;
+}
+
+function countReferrals(userId) {
+  const users = readJSON('users.json');
+  return users.filter(u => Number(u.referrerId) === Number(userId)).length;
+}
+
+function normalizePromoCode(code) {
+  return String(code || '').trim().toUpperCase();
+}
+
+function findPromocode(code) {
+  const promos = readJSON('promocodes.json');
+  const normalized = normalizePromoCode(code);
+  return promos.find(p => normalizePromoCode(p.code) === normalized) || null;
 }
 
 function defaultCategories() {
@@ -449,8 +520,138 @@ app.get('/api/users/me', (req, res) => {
     firstName: user.firstName,
     lastName: user.lastName,
     balance: user.balance,
-    firstSeen: user.firstSeen
+    firstSeen: user.firstSeen,
+    pendingPromoDiscount: user.pendingPromoDiscount || 0,
+    pendingFreeOrder: !!user.pendingFreeOrder,
+    referralCount: countReferrals(verifiedUserId)
   });
+});
+
+app.get('/api/referrals/my', (req, res) => {
+  const verifiedUserId = getVerifiedTelegramUserId(req.headers['x-telegram-init-data']);
+  if (!verifiedUserId) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  res.json({
+    count: countReferrals(verifiedUserId),
+    link: `https://t.me/${BOT_USERNAME}?start=ref_${verifiedUserId}`,
+    bonus: REFERRAL_BONUS
+  });
+});
+
+app.post('/api/promo/activate', (req, res) => {
+  const initData = req.headers['x-telegram-init-data'];
+  const verifiedUserId = getVerifiedTelegramUserId(initData);
+  if (!verifiedUserId) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  const code = normalizePromoCode(req.body?.code);
+  if (!code) return res.status(400).json({ error: 'Введите промокод' });
+
+  const promos = readJSON('promocodes.json');
+  const promo = promos.find(p => normalizePromoCode(p.code) === code);
+  if (!promo) return res.status(404).json({ error: 'Промокод не найден' });
+
+  if (!Array.isArray(promo.activatedBy)) promo.activatedBy = [];
+  if (promo.activatedBy.some(id => Number(id) === Number(verifiedUserId))) {
+    return res.status(400).json({ error: 'Вы уже активировали этот промокод' });
+  }
+
+  const maxActivations = Number(promo.maxActivations) || 0;
+  if (maxActivations > 0 && promo.activatedBy.length >= maxActivations) {
+    return res.status(400).json({ error: 'Промокод исчерпан' });
+  }
+
+  const tgUser = getTelegramUserFromInitData(initData);
+  ensureUserRecord(verifiedUserId, {
+    username: tgUser.username || '',
+    firstName: tgUser.first_name || '',
+    lastName: tgUser.last_name || ''
+  });
+
+  const value = Math.max(0, Math.round(Number(promo.value) || 0));
+  let message = '';
+  let newBalance = null;
+
+  if (promo.type === 'balance') {
+    newBalance = addBalance(verifiedUserId, value);
+    message = `На баланс начислено ${value} сом`;
+  } else if (promo.type === 'discount') {
+    const users = readJSON('users.json');
+    const user = users.find(u => Number(u.id) === Number(verifiedUserId));
+    if (user) {
+      user.pendingPromoDiscount = (user.pendingPromoDiscount || 0) + value;
+      writeJSON('users.json', users);
+    }
+    message = `Скидка ${value} сом будет применена к следующему заказу`;
+  } else if (promo.type === 'free_order') {
+    const users = readJSON('users.json');
+    const user = users.find(u => Number(u.id) === Number(verifiedUserId));
+    if (user) {
+      user.pendingFreeOrder = true;
+      writeJSON('users.json', users);
+    }
+    message = 'Следующий заказ будет бесплатным';
+  } else {
+    return res.status(400).json({ error: 'Неизвестный тип промокода' });
+  }
+
+  promo.activatedBy.push(verifiedUserId);
+  writeJSON('promocodes.json', promos);
+
+  const users = readJSON('users.json');
+  const user = users.find(u => Number(u.id) === Number(verifiedUserId));
+
+  res.json({
+    ok: true,
+    message,
+    type: promo.type,
+    value,
+    newBalance: newBalance ?? user?.balance ?? 0,
+    pendingPromoDiscount: user?.pendingPromoDiscount || 0,
+    pendingFreeOrder: !!user?.pendingFreeOrder
+  });
+});
+
+app.get('/api/promocodes', requireAdmin, (req, res) => {
+  res.json(readJSON('promocodes.json'));
+});
+
+app.post('/api/promocodes', requireAdmin, (req, res) => {
+  const { code, type, value, maxActivations } = req.body;
+  const normalized = normalizePromoCode(code);
+  if (!normalized) return res.status(400).json({ error: 'Код обязателен' });
+  if (!['balance', 'discount', 'free_order'].includes(type)) {
+    return res.status(400).json({ error: 'Неверный тип промокода' });
+  }
+
+  const promos = readJSON('promocodes.json');
+  if (promos.some(p => normalizePromoCode(p.code) === normalized)) {
+    return res.status(400).json({ error: 'Такой промокод уже существует' });
+  }
+
+  const promo = {
+    code: normalized,
+    type,
+    value: Math.max(0, Math.round(Number(value) || 0)),
+    maxActivations: Math.max(0, Math.round(Number(maxActivations) || 1)),
+    activatedBy: []
+  };
+  promos.push(promo);
+  writeJSON('promocodes.json', promos);
+  res.json(promo);
+});
+
+app.delete('/api/promocodes/:code', requireAdmin, (req, res) => {
+  const normalized = normalizePromoCode(req.params.code);
+  const promos = readJSON('promocodes.json');
+  const filtered = promos.filter(p => normalizePromoCode(p.code) !== normalized);
+  if (filtered.length === promos.length) {
+    return res.status(404).json({ error: 'Промокод не найден' });
+  }
+  writeJSON('promocodes.json', filtered);
+  res.json({ ok: true });
 });
 
 app.post('/api/orders', (req, res) => {
@@ -475,7 +676,33 @@ app.post('/api/orders', (req, res) => {
   const items = Array.isArray(body.items) ? body.items : [];
   const computedTotal = items.reduce((s, i) => s + (Number(i.price) || 0) * (Number(i.qty) || 1), 0);
   const total = computedTotal > 0 ? computedTotal : Math.max(0, Number(body.total) || 0);
-  const discount = Math.min(Math.max(0, Math.round(Number(body.discount) || 0)), total);
+  const wheelDiscount = Math.min(Math.max(0, Math.round(Number(body.discount) || 0)), total);
+
+  let promoDiscountUsed = 0;
+  let freeOrderApplied = false;
+  if (verifiedUserId) {
+    const users = readJSON('users.json');
+    const user = users.find(u => Number(u.id) === Number(verifiedUserId));
+    if (user) {
+      let userChanged = false;
+      if (user.pendingFreeOrder) {
+        freeOrderApplied = true;
+        user.pendingFreeOrder = false;
+        userChanged = true;
+      }
+      if (user.pendingPromoDiscount > 0) {
+        promoDiscountUsed = user.pendingPromoDiscount;
+        user.pendingPromoDiscount = 0;
+        userChanged = true;
+      }
+      if (userChanged) writeJSON('users.json', users);
+    }
+  }
+
+  const totalDiscount = freeOrderApplied
+    ? total
+    : Math.min(total, wheelDiscount + promoDiscountUsed);
+  const discount = totalDiscount;
   const afterDiscount = Math.max(0, total - discount);
 
   let balanceUsed = 0;
@@ -498,6 +725,9 @@ app.post('/api/orders', (req, res) => {
     ...body,
     total,
     discount,
+    wheelDiscount,
+    promoDiscountUsed,
+    freeOrderApplied,
     balanceUsed,
     finalTotal,
     status: 'new',
@@ -529,6 +759,8 @@ app.post('/api/orders', (req, res) => {
     if (order.comment) text += `\n💬 ${order.comment}`;
     text += `\n\n💰 Сумма: ${order.total || order.finalTotal} сом\n`;
     if (order.discount) text += `🎁 Скидка: −${order.discount} сом\n`;
+    if (order.promoDiscountUsed) text += `🏷️ Промо-скидка: −${order.promoDiscountUsed} сом\n`;
+    if (order.freeOrderApplied) text += `🎁 Бесплатный заказ (промокод)\n`;
     if (order.balanceUsed) text += `💳 С баланса: −${order.balanceUsed} сом\n`;
     text += `✅ Итого: *${order.finalTotal} сом*`;
     ADMIN_IDS.forEach(id => bot.sendMessage(id, text, { parse_mode: 'Markdown' }).catch(() => {}));
@@ -744,6 +976,7 @@ async function initBot(retryCount = 0) {
       // Register/update user
       const users = readJSON('users.json');
       const existing = users.find(u => u.id === userId);
+      const isNewUser = !existing;
       if (!existing) {
         users.push({
           id: userId,
@@ -751,16 +984,34 @@ async function initBot(retryCount = 0) {
           firstName: user.first_name || '',
           lastName: user.last_name || '',
           firstSeen: new Date().toISOString(),
-          balance: 0
+          balance: 0,
+          referrerId: null,
+          pendingPromoDiscount: 0,
+          pendingFreeOrder: false
         });
         writeJSON('users.json', users);
-      } else if (typeof existing.balance !== 'number') {
-        existing.balance = 0;
-        writeJSON('users.json', users);
+      } else {
+        let changed = false;
+        if (typeof existing.balance !== 'number') { existing.balance = 0; changed = true; }
+        if (existing.referrerId === undefined) { existing.referrerId = null; changed = true; }
+        if (existing.pendingPromoDiscount === undefined) { existing.pendingPromoDiscount = 0; changed = true; }
+        if (existing.pendingFreeOrder === undefined) { existing.pendingFreeOrder = false; changed = true; }
+        if (changed) writeJSON('users.json', users);
       }
 
-      // Handle /start (включая /start welcome при переходе из Mini App)
+      // Handle /start (включая /start welcome и /start ref_<id>)
       if (isStartCommand(msg.text)) {
+        const startParam = getStartParam(msg.text);
+        const referrerId = parseReferrerId(startParam);
+        if (referrerId && isNewUser) {
+          const applied = processReferral(userId, referrerId);
+          if (applied && bot) {
+            bot.sendMessage(chatId, `🎉 Реферальный бонус: +${REFERRAL_BONUS} сом на ваш баланс!`).catch(() => {});
+            bot.sendMessage(referrerId, `👥 По вашей ссылке пришёл новый пользователь! +${REFERRAL_BONUS} сом на баланс.`).catch(() => {});
+          } else if (isNewUser && referrerId && Number(referrerId) === Number(userId)) {
+            // self-referral — ignore silently
+          }
+        }
         await sendWelcomeMessage(chatId);
         return;
       }
