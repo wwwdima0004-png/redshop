@@ -8,8 +8,26 @@
   <link rel="stylesheet" href="style.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script>
+    (function () {
+      try {
+        var theme = localStorage.getItem('redshop_theme') || 'red';
+        document.documentElement.setAttribute('data-theme-init', theme);
+      } catch (e) {}
+    })();
+  </script>
 </head>
 <body>
+<script>
+  (function () {
+    try {
+      var theme = localStorage.getItem('redshop_theme') || 'red';
+      document.body.setAttribute('data-theme', theme);
+    } catch (e) {
+      document.body.setAttribute('data-theme', 'red');
+    }
+  })();
+</script>
 
 <!-- ═══════════════════ TAB: BONUSES ═══════════════════ -->
 <div id="bonusView" class="main-tab-view hidden">
@@ -148,7 +166,7 @@
         <span class="profile-menu-text">Ввести промокод</span>
         <span class="profile-menu-arrow">›</span>
       </button>
-      <button type="button" class="profile-menu-item" onclick="profileMenuStub('interface')">
+      <button type="button" class="profile-menu-item" onclick="openThemesScreen()">
         <span class="profile-menu-icon" aria-hidden="true">🎨</span>
         <span class="profile-menu-text">Оформление интерфейса</span>
         <span class="profile-menu-arrow">›</span>
@@ -209,6 +227,15 @@
       <div id="promoPendingInfo" class="promo-pending-info hidden"></div>
     </div>
   </div>
+
+  <div id="themesScreen" class="profile-sub-screen hidden">
+    <div class="order-history-header">
+      <button type="button" class="catalog-back-btn" onclick="closeThemesScreen()">← Назад</button>
+      <h2 class="order-history-title">Оформление интерфейса</h2>
+    </div>
+    <p class="referral-desc">Выберите цветовую тему. Все темы тёмные и комфортные для глаз.</p>
+    <div id="themesGrid" class="themes-grid"></div>
+  </div>
 </div>
 
 <!-- ═══════════════════ BOTTOM NAV ═══════════════════ -->
@@ -241,6 +268,35 @@
 </nav>
 
 <!-- ═══════════════════ MODALS ═══════════════════ -->
+
+<!-- Age gate 18+ -->
+<div id="ageGateModal" class="age-gate-overlay hidden" aria-modal="true" role="dialog">
+  <div class="age-gate-modal">
+    <h2 class="age-gate-title">Важные условия покупки — подтвердите перед входом в магазин</h2>
+    <div class="age-gate-cards">
+      <div class="age-gate-card">
+        <div class="age-gate-card-title">Возврата денег нет</div>
+        <div class="age-gate-card-text">После покупки возврат не производится</div>
+      </div>
+      <div class="age-gate-card">
+        <div class="age-gate-card-title">Замена только при браке</div>
+        <div class="age-gate-card-text">Замена возможна только при подтверждённом браке товара</div>
+      </div>
+      <div class="age-gate-card">
+        <div class="age-gate-card-title">Покупка только от 18+</div>
+        <div class="age-gate-card-text">Нажимая «Хорошо», вы подтверждаете, что вам есть 18 лет</div>
+      </div>
+    </div>
+    <div class="age-gate-footer">
+      <label class="age-gate-dont-show">
+        <input type="checkbox" id="ageGateDontShow">
+        <span class="age-gate-check"></span>
+        <span class="age-gate-dont-show-text">Не показывать снова</span>
+      </label>
+      <button type="button" class="btn-primary btn-full" onclick="confirmAgeGate()">Хорошо</button>
+    </div>
+  </div>
+</div>
 
 <!-- Cart Modal -->
 <div id="cartModal" class="modal-overlay hidden" onclick="closeOnOverlay(event, 'cartModal')">

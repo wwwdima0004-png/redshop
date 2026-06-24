@@ -20,6 +20,96 @@
   --radius-sm: 8px;
   --shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
   --shadow-red: 0 4px 20px rgba(227, 30, 36, 0.25);
+  --glow-top: rgba(180, 20, 30, 0.38);
+  --glow-bottom-right: rgba(139, 0, 0, 0.22);
+  --glow-bottom-left: rgba(227, 30, 36, 0.14);
+  --gradient-mid: #1a0808;
+  --gradient-dark: #140606;
+  --bg-base: #080808;
+  --bg-page: #050505;
+  --bg-card-tint: #1a1010;
+  --accent-ring: rgba(227, 30, 36, 0.15);
+  --accent-soft: rgba(227, 30, 36, 0.12);
+  --accent-soft-2: rgba(227, 30, 36, 0.08);
+  --accent-soft-3: rgba(227, 30, 36, 0.06);
+}
+
+body[data-theme="blue"] {
+  --bg: #0a0a12;
+  --bg-2: #0f111a;
+  --bg-card: #141822;
+  --bg-card-2: #1a2030;
+  --red: #2563eb;
+  --red-dark: #1d4ed8;
+  --red-deep: #1e3a8a;
+  --red-light: #60a5fa;
+  --red-glow: rgba(37, 99, 235, 0.15);
+  --border-red: rgba(37, 99, 235, 0.3);
+  --shadow-red: 0 4px 20px rgba(37, 99, 235, 0.25);
+  --glow-top: rgba(37, 99, 235, 0.32);
+  --glow-bottom-right: rgba(30, 58, 138, 0.22);
+  --glow-bottom-left: rgba(37, 99, 235, 0.14);
+  --gradient-mid: #0a1020;
+  --gradient-dark: #080818;
+  --bg-base: #07080f;
+  --bg-page: #05060c;
+  --bg-card-tint: #101828;
+  --accent-ring: rgba(37, 99, 235, 0.15);
+  --accent-soft: rgba(37, 99, 235, 0.12);
+  --accent-soft-2: rgba(37, 99, 235, 0.08);
+  --accent-soft-3: rgba(37, 99, 235, 0.06);
+}
+
+body[data-theme="green"] {
+  --bg: #0a100c;
+  --bg-2: #0f1610;
+  --bg-card: #141c16;
+  --bg-card-2: #1a241c;
+  --red: #16a34a;
+  --red-dark: #15803d;
+  --red-deep: #14532d;
+  --red-light: #4ade80;
+  --red-glow: rgba(22, 163, 74, 0.15);
+  --border-red: rgba(22, 163, 74, 0.3);
+  --shadow-red: 0 4px 20px rgba(22, 163, 74, 0.25);
+  --glow-top: rgba(22, 163, 74, 0.28);
+  --glow-bottom-right: rgba(20, 83, 45, 0.2);
+  --glow-bottom-left: rgba(22, 163, 74, 0.12);
+  --gradient-mid: #0a140c;
+  --gradient-dark: #081008;
+  --bg-base: #070a08;
+  --bg-page: #050805;
+  --bg-card-tint: #101a12;
+  --accent-ring: rgba(22, 163, 74, 0.15);
+  --accent-soft: rgba(22, 163, 74, 0.12);
+  --accent-soft-2: rgba(22, 163, 74, 0.08);
+  --accent-soft-3: rgba(22, 163, 74, 0.06);
+}
+
+body[data-theme="purple"] {
+  --bg: #100a12;
+  --bg-2: #150f18;
+  --bg-card: #1a1420;
+  --bg-card-2: #221828;
+  --red: #9333ea;
+  --red-dark: #7e22ce;
+  --red-deep: #581c87;
+  --red-light: #c084fc;
+  --red-glow: rgba(147, 51, 234, 0.15);
+  --border-red: rgba(147, 51, 234, 0.3);
+  --shadow-red: 0 4px 20px rgba(147, 51, 234, 0.25);
+  --glow-top: rgba(147, 51, 234, 0.3);
+  --glow-bottom-right: rgba(88, 28, 135, 0.22);
+  --glow-bottom-left: rgba(147, 51, 234, 0.14);
+  --gradient-mid: #140818;
+  --gradient-dark: #100610;
+  --bg-base: #0a070c;
+  --bg-page: #080508;
+  --bg-card-tint: #181020;
+  --accent-ring: rgba(147, 51, 234, 0.15);
+  --accent-soft: rgba(147, 51, 234, 0.12);
+  --accent-soft-2: rgba(147, 51, 234, 0.08);
+  --accent-soft-3: rgba(147, 51, 234, 0.06);
 }
 
 /* ─── Reset & Base ─────────────────────────────────────────────────────────── */
@@ -29,12 +119,12 @@ html {
   font-size: 16px;
   -webkit-text-size-adjust: 100%;
   min-height: 100%;
-  background-color: #080808;
+  background-color: var(--bg-base, #080808);
 }
 
 body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-  background-color: #080808;
+  background-color: var(--bg-base, #080808);
   color: var(--white);
   min-height: 100vh;
   overflow-x: hidden;
@@ -131,10 +221,10 @@ body {
   inset: 0;
   z-index: -1;
   pointer-events: none;
-  background-color: #080808;
+  background-color: var(--bg-base);
   background-image:
-    radial-gradient(ellipse 120% 70% at 50% -10%, rgba(180, 20, 30, 0.28) 0%, transparent 55%),
-    linear-gradient(168deg, #050505 0%, #120606 45%, #080808 100%);
+    radial-gradient(ellipse 120% 70% at 50% -10%, var(--glow-top) 0%, transparent 55%),
+    linear-gradient(168deg, var(--bg-page) 0%, var(--gradient-dark) 45%, var(--bg-base) 100%);
 }
 
 .profile-page {
@@ -164,7 +254,7 @@ body {
   border-radius: 50%;
   object-fit: cover;
   border: 3px solid var(--red);
-  box-shadow: 0 0 0 4px rgba(227, 30, 36, 0.15);
+  box-shadow: 0 0 0 4px var(--accent-ring);
 }
 
 .profile-avatar-placeholder {
@@ -195,7 +285,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: linear-gradient(135deg, var(--bg-card) 0%, #1a1010 100%);
+  background: linear-gradient(135deg, var(--bg-card) 0%, var(--bg-card-tint) 100%);
   border: 1px solid var(--border-red);
   border-radius: var(--radius);
   padding: 18px 20px;
@@ -599,11 +689,11 @@ body {
   inset: 0;
   z-index: -1;
   pointer-events: none;
-  background-color: #080808;
+  background-color: var(--bg-base);
   background-image:
-    radial-gradient(ellipse 130% 80% at 50% -5%, rgba(180, 20, 30, 0.38) 0%, transparent 58%),
-    radial-gradient(ellipse 90% 55% at 100% 85%, rgba(139, 0, 0, 0.22) 0%, transparent 52%),
-    radial-gradient(ellipse 70% 45% at 0% 55%, rgba(227, 30, 36, 0.14) 0%, transparent 48%),
+    radial-gradient(ellipse 130% 80% at 50% -5%, var(--glow-top) 0%, transparent 58%),
+    radial-gradient(ellipse 90% 55% at 100% 85%, var(--glow-bottom-right) 0%, transparent 52%),
+    radial-gradient(ellipse 70% 45% at 0% 55%, var(--glow-bottom-left) 0%, transparent 48%),
     repeating-linear-gradient(
       -45deg,
       transparent,
@@ -611,7 +701,7 @@ body {
       rgba(255, 255, 255, 0.018) 36px,
       rgba(255, 255, 255, 0.018) 37px
     ),
-    linear-gradient(168deg, #050505 0%, #1a0808 32%, #140606 58%, #080808 100%);
+    linear-gradient(168deg, var(--bg-page) 0%, var(--gradient-mid) 32%, var(--gradient-dark) 58%, var(--bg-base) 100%);
 }
 
 img { max-width: 100%; display: block; }
@@ -2373,4 +2463,173 @@ a { color: inherit; text-decoration: none; }
     0 0 16px #ff8800,
     0 0 28px #ffcc00;
   animation: pointerBob 1s ease-in-out infinite;
+}
+
+/* ─── Age gate modal ────────────────────────────────────────────────────────── */
+.age-gate-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.88);
+  backdrop-filter: blur(6px);
+}
+
+.age-gate-modal {
+  width: 100%;
+  max-width: 420px;
+  max-height: 90vh;
+  overflow-y: auto;
+  background: var(--bg-card);
+  border: 1px solid var(--border-red);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-red);
+  padding: 20px 18px 18px;
+}
+
+.age-gate-title {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: var(--white);
+  text-align: center;
+  line-height: 1.35;
+  margin-bottom: 16px;
+}
+
+.age-gate-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.age-gate-card {
+  background: var(--bg-card-2);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--red);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+}
+
+.age-gate-card-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--red-light);
+  margin-bottom: 4px;
+}
+
+.age-gate-card-text {
+  font-size: 13px;
+  color: var(--grey);
+  line-height: 1.45;
+}
+
+.age-gate-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.age-gate-dont-show {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  user-select: none;
+  padding: 4px 2px;
+}
+
+.age-gate-dont-show input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.age-gate-check {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  border: 2px solid var(--grey-dark);
+  border-radius: 6px;
+  position: relative;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.age-gate-dont-show input:checked + .age-gate-check {
+  border-color: var(--red);
+  background: var(--red);
+}
+
+.age-gate-dont-show input:checked + .age-gate-check::after {
+  content: '✓';
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--white);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.age-gate-dont-show-text {
+  font-size: 14px;
+  color: var(--white);
+}
+
+/* ─── Theme picker ──────────────────────────────────────────────────────────── */
+.themes-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  padding-top: 8px;
+}
+
+.theme-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 12px;
+  background: var(--bg-card);
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.theme-card:active {
+  opacity: 0.9;
+}
+
+.theme-card.active {
+  border-color: var(--red);
+  background: var(--accent-soft-3);
+  box-shadow: var(--shadow-red);
+}
+
+.theme-preview {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, 0.15);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+}
+
+.theme-card-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--white);
+}
+
+.theme-card-check {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--red-light);
+  min-height: 16px;
 }

@@ -36,8 +36,19 @@ const state = {
   referralCount: 0,
   referralLink: '',
   promoDiscount: 0,
-  pendingFreeOrder: false
+  pendingFreeOrder: false,
+  currentTheme: 'red'
 };
+
+const APP_THEMES = {
+  red: { name: 'Красная', preview: '#e31e24' },
+  blue: { name: 'Синяя', preview: '#2563eb' },
+  green: { name: 'Зелёная', preview: '#16a34a' },
+  purple: { name: 'Фиолетовая', preview: '#9333ea' }
+};
+
+const AGE_GATE_SKIP_KEY = 'redshop_age_skip';
+const THEME_STORAGE_KEY = 'redshop_theme';
 
 // ─── API ─────────────────────────────────────────────────────────────────────
 const API = '/api';
@@ -112,6 +123,8 @@ function closeOnOverlay(e, id) {
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
+  initTheme();
+  initAgeGate();
   switchMainTab('catalog');
   await initShop();
   checkSpinStatus();
@@ -120,6 +133,81 @@ document.addEventListener('DOMContentLoaded', async () => {
   renderProfile();
   initAdminCheck();
 });
+
+function initTheme() {
+  let theme = 'red';
+  try {
+    theme = localStorage.getItem(THEME_STORAGE_KEY) || 'red';
+    if (!APP_THEMES[theme]) theme = 'red';
+  } catch {}
+  applyTheme(theme, false);
+}
+
+function applyTheme(themeId, save = true) {
+  if (!APP_THEMES[themeId]) themeId = 'red';
+  state.currentTheme = themeId;
+  document.body.setAttribute('data-theme', themeId);
+  if (save) {
+    try { localStorage.setItem(THEME_STORAGE_KEY, themeId); } catch {}
+  }
+  if (tg?.setHeaderColor) {
+    const headerColors = { red: '#140808', blue: '#080818', green: '#081008', purple: '#100610' };
+    const c = headerColors[themeId] || '#140808';
+    try { tg.setHeaderColor(c); tg.setBackgroundColor(c); } catch {}
+  }
+  renderThemeOptions();
+}
+
+function renderThemeOptions() {
+  const grid = document.getElementById('themesGrid');
+  if (!grid) return;
+  grid.innerHTML = Object.entries(APP_THEMES).map(([id, theme]) => {
+    const active = state.currentTheme === id;
+    return `
+      <button type="button" class="theme-card${active ? ' active' : ''}" onclick="selectTheme('${id}')">
+        <span class="theme-preview" style="background:${theme.preview}"></span>
+        <span class="theme-card-name">${theme.name}</span>
+        <span class="theme-card-check">${active ? '✓ Выбрано' : ''}</span>
+      </button>
+    `;
+  }).join('');
+}
+
+function selectTheme(themeId) {
+  applyTheme(themeId, true);
+  showToast(`Тема «${APP_THEMES[themeId]?.name || themeId}» применена`, 'success');
+}
+
+function openThemesScreen() {
+  openProfileSubscreen('themesScreen');
+  renderThemeOptions();
+}
+
+function closeThemesScreen() {
+  closeProfileSubscreens(true);
+}
+
+function initAgeGate() {
+  const modal = document.getElementById('ageGateModal');
+  if (!modal) return;
+  let skip = false;
+  try { skip = localStorage.getItem(AGE_GATE_SKIP_KEY) === '1'; } catch {}
+  if (skip) {
+    modal.classList.add('hidden');
+  } else {
+    modal.classList.remove('hidden');
+    const cb = document.getElementById('ageGateDontShow');
+    if (cb) cb.checked = false;
+  }
+}
+
+function confirmAgeGate() {
+  const dontShow = document.getElementById('ageGateDontShow')?.checked;
+  if (dontShow) {
+    try { localStorage.setItem(AGE_GATE_SKIP_KEY, '1'); } catch {}
+  }
+  document.getElementById('ageGateModal')?.classList.add('hidden');
+}
 
 // ═══════════════════════════════════════════════════════════════
 // MAIN TABS (bottom nav)
@@ -160,7 +248,7 @@ function showProfileMain() {
 }
 
 function hideAllProfileSubscreens() {
-  ['orderHistoryScreen', 'referralScreen', 'promoScreen'].forEach(id => {
+  ['orderHistoryScreen', 'referralScreen', 'promoScreen', 'themesScreen'].forEach(id => {
     document.getElementById(id)?.classList.add('hidden');
   });
 }
@@ -270,10 +358,7 @@ function renderProfile() {
 }
 
 function profileMenuStub(section) {
-  const labels = {
-    interface: 'Оформление интерфейса'
-  };
-  showToast(`${labels[section] || 'Раздел'} — скоро будет доступно`);
+  showToast('Раздел — скоро будет доступно');
 }
 
 async function fetchReferralsMy() {
