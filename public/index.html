@@ -11,8 +11,15 @@
 </head>
 <body>
 
-<!-- ═══════════════════ SHOP VIEW ═══════════════════ -->
-<div id="shopView">
+<!-- ═══════════════════ TAB: BONUSES ═══════════════════ -->
+<div id="bonusView" class="main-tab-view hidden">
+  <div class="stub-screen">
+    <h1 class="stub-title">Бонусы</h1>
+  </div>
+</div>
+
+<!-- ═══════════════════ TAB: CATALOG (shop) ═══════════════════ -->
+<div id="shopView" class="main-tab-view">
 
   <!-- Header -->
   <header class="header">
@@ -81,6 +88,42 @@
   </div>
 
 </div>
+
+<!-- ═══════════════════ TAB: PROFILE ═══════════════════ -->
+<div id="profileView" class="main-tab-view hidden">
+  <div class="stub-screen">
+    <h1 class="stub-title">Профиль</h1>
+  </div>
+</div>
+
+<!-- ═══════════════════ BOTTOM NAV ═══════════════════ -->
+<nav id="bottomNav" class="bottom-nav" aria-label="Основная навигация">
+  <button type="button" class="bottom-nav-btn" data-tab="bonus" onclick="switchMainTab('bonus')">
+    <svg class="bottom-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <rect x="3" y="8" width="18" height="13" rx="2"/>
+      <path d="M12 8V22"/>
+      <path d="M12 8c-2-3-6-3-6 0h6z"/>
+      <path d="M12 8c2-3 6-3 6 0h-6z"/>
+    </svg>
+    <span class="bottom-nav-label">Бонусы</span>
+  </button>
+  <button type="button" class="bottom-nav-btn active" data-tab="catalog" onclick="switchMainTab('catalog')">
+    <svg class="bottom-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <rect x="3" y="3" width="7" height="7" rx="1"/>
+      <rect x="14" y="3" width="7" height="7" rx="1"/>
+      <rect x="3" y="14" width="7" height="7" rx="1"/>
+      <rect x="14" y="14" width="7" height="7" rx="1"/>
+    </svg>
+    <span class="bottom-nav-label">Каталог</span>
+  </button>
+  <button type="button" class="bottom-nav-btn" data-tab="profile" onclick="switchMainTab('profile')">
+    <svg class="bottom-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <circle cx="12" cy="8" r="4"/>
+      <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>
+    </svg>
+    <span class="bottom-nav-label">Профиль</span>
+  </button>
+</nav>
 
 <!-- ═══════════════════ MODALS ═══════════════════ -->
 

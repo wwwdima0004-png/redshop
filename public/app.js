@@ -27,7 +27,8 @@ const state = {
   ordersFilter: 'all',
   wheelRotation: 0,
   spinning: false,
-  buyProductId: null
+  buyProductId: null,
+  currentMainTab: 'catalog'
 };
 
 // ─── API ─────────────────────────────────────────────────────────────────────
@@ -103,11 +104,39 @@ function closeOnOverlay(e, id) {
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
+  switchMainTab('catalog');
   await initShop();
   checkSpinStatus();
   checkExistingDiscount();
   initAdminCheck();
 });
+
+// ═══════════════════════════════════════════════════════════════
+// MAIN TABS (bottom nav)
+// ═══════════════════════════════════════════════════════════════
+
+const MAIN_TAB_VIEWS = {
+  bonus: 'bonusView',
+  catalog: 'shopView',
+  profile: 'profileView'
+};
+
+function setBottomNavVisible(visible) {
+  document.getElementById('bottomNav')?.classList.toggle('hidden', !visible);
+}
+
+function switchMainTab(tab) {
+  if (!MAIN_TAB_VIEWS[tab]) return;
+  state.currentMainTab = tab;
+
+  Object.entries(MAIN_TAB_VIEWS).forEach(([key, viewId]) => {
+    document.getElementById(viewId)?.classList.toggle('hidden', key !== tab);
+  });
+
+  document.querySelectorAll('.bottom-nav-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.tab === tab);
+  });
+}
 
 // ═══════════════════════════════════════════════════════════════
 // SHOP
@@ -1138,7 +1167,10 @@ async function loginAdmin() {
 }
 
 function showAdminPanel() {
-  document.getElementById('shopView').classList.add('hidden');
+  Object.values(MAIN_TAB_VIEWS).forEach(id => {
+    document.getElementById(id)?.classList.add('hidden');
+  });
+  setBottomNavVisible(false);
   document.getElementById('adminPanel').classList.remove('hidden');
   switchAdminTab('products');
 }
@@ -1152,7 +1184,8 @@ function refreshShopView() {
 function logoutAdmin() {
   state.adminPassword = null;
   document.getElementById('adminPanel').classList.add('hidden');
-  document.getElementById('shopView').classList.remove('hidden');
+  setBottomNavVisible(true);
+  switchMainTab(state.currentMainTab || 'catalog');
   refreshShopView();
   showToast('Выход из админ панели');
 }
