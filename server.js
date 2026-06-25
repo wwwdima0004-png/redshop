@@ -78,6 +78,7 @@ function ensureDataFiles() {
   if (needsDefaultCategories) writeJSON('categories.json', defaultCategories());
 
   migrateProductsCategory();
+  migrateProductsStock();
 
   if (!fs.existsSync(path.join(DATA_DIR, 'orders.json'))) writeJSON('orders.json', []);
   if (!fs.existsSync(path.join(DATA_DIR, 'users.json'))) writeJSON('users.json', []);
@@ -552,8 +553,7 @@ function validateOrderItems(rawItems) {
 
   const products = readJSON('products.json');
   const categories = readJSON('categories.json');
-  const items = [];
-  let total = 0;
+  const qtyById = new Map();
 
   for (const raw of rawItems) {
     const id = parseInt(raw.id, 10);
@@ -564,10 +564,25 @@ function validateOrderItems(rawItems) {
     if (qty <= 0) {
       return { error: 'Количество должно быть больше 0', status: 400 };
     }
+    qtyById.set(id, (qtyById.get(id) || 0) + qty);
+  }
 
+  const items = [];
+  let total = 0;
+
+  for (const [id, qty] of qtyById.entries()) {
     const product = products.find(p => Number(p.id) === id);
     if (!product) {
       return { error: `Товар #${id} не найден`, status: 400 };
+    }
+    if (!isProductPurchasable(product)) {
+      const label = product.description || product.name;
+      return { error: `«${label}» нет в наличии`, status: 400 };
+    }
+    const stock = normalizeProductStock(product);
+    if (stock < qty) {
+      const label = product.description || product.name;
+      return { error: `Недостаточно «${label}» (осталось ${stock} шт)`, status: 400 };
     }
 
     const price = Number(product.price) || 0;
@@ -679,7 +694,11 @@ function persistOrder(order) {
   const products = readJSON('products.json');
   (order.items || []).forEach(item => {
     const prod = products.find(p => Number(p.id) === Number(item.id));
-    if (prod) prod.sales = (prod.sales || 0) + (item.qty || 1);
+    if (prod) {
+      prod.sales = (prod.sales || 0) + (item.qty || 1);
+      prod.stock = Math.max(0, normalizeProductStock(prod) - (item.qty || 1));
+      if (prod.stock <= 0) prod.available = false;
+    }
   });
   writeJSON('products.json', products);
 
@@ -715,14 +734,41 @@ function getUserBalance(userId) {
   return u && typeof u.balance === 'number' ? u.balance : null;
 }
 
+function normalizeProductStock(product) {
+  return Math.max(0, Math.round(Number(product?.stock) || 0));
+}
+
+function isProductPurchasable(product) {
+  if (!product) return false;
+  if (product.available === false) return false;
+  return normalizeProductStock(product) > 0;
+}
+
+function migrateProductsStock() {
+  const products = readJSON('products.json');
+  if (!Array.isArray(products)) return;
+  let changed = false;
+  products.forEach(p => {
+    if (typeof p.stock !== 'number' || Number.isNaN(p.stock)) {
+      p.stock = p.available === false ? 0 : 10;
+      changed = true;
+    }
+    if (p.stock <= 0 && p.available !== false) {
+      p.available = false;
+      changed = true;
+    }
+  });
+  if (changed) writeJSON('products.json', products);
+}
+
 function defaultProducts() {
   return [
-    { id: 1, name: 'Watermelon Ice', price: 350, categoryId: 1, photo: '/img/placeholder.svg', available: true, sales: 0, description: 'Арбуз со льдом' },
-    { id: 2, name: 'Mango Peach', price: 350, categoryId: 1, photo: '/img/placeholder.svg', available: true, sales: 0, description: 'Манго и персик' },
-    { id: 3, name: 'Blueberry Ice', price: 380, categoryId: 1, photo: '/img/placeholder.svg', available: true, sales: 0, description: 'Черника со льдом' },
-    { id: 4, name: 'Strawberry Kiwi', price: 350, categoryId: 1, photo: '/img/placeholder.svg', available: true, sales: 0, description: 'Клубника и киви' },
-    { id: 5, name: 'Lychee Ice', price: 400, categoryId: 1, photo: '/img/placeholder.svg', available: true, sales: 0, description: 'Личи со льдом' },
-    { id: 6, name: 'Grape Ice', price: 350, categoryId: 1, photo: '/img/placeholder.svg', available: false, sales: 0, description: 'Виноград со льдом' },
+    { id: 1, name: 'Watermelon Ice', price: 350, categoryId: 1, photo: '/img/placeholder.svg', available: true, sales: 0, stock: 10, description: 'Арбуз со льдом' },
+    { id: 2, name: 'Mango Peach', price: 350, categoryId: 1, photo: '/img/placeholder.svg', available: true, sales: 0, stock: 10, description: 'Манго и персик' },
+    { id: 3, name: 'Blueberry Ice', price: 380, categoryId: 1, photo: '/img/placeholder.svg', available: true, sales: 0, stock: 10, description: 'Черника со льдом' },
+    { id: 4, name: 'Strawberry Kiwi', price: 350, categoryId: 1, photo: '/img/placeholder.svg', available: true, sales: 0, stock: 10, description: 'Клубника и киви' },
+    { id: 5, name: 'Lychee Ice', price: 400, categoryId: 1, photo: '/img/placeholder.svg', available: true, sales: 0, stock: 10, description: 'Личи со льдом' },
+    { id: 6, name: 'Grape Ice', price: 350, categoryId: 1, photo: '/img/placeholder.svg', available: false, sales: 0, stock: 0, description: 'Виноград со льдом' },
   ];
 }
 
@@ -963,8 +1009,10 @@ app.post('/api/products', requireAdmin, upload.single('photo'), (req, res) => {
     photo: req.file ? `/uploads/${req.file.filename}` : '/img/placeholder.svg',
     available: true,
     sales: 0,
+    stock: Math.max(0, parseInt(req.body.stock, 10) || 10),
     description: req.body.description || ''
   };
+  if (product.stock <= 0) product.available = false;
   if (oldPrice && oldPrice > product.price) product.oldPrice = oldPrice;
   products.push(product);
   writeJSON('products.json', products);
@@ -981,6 +1029,12 @@ app.put('/api/products/:id', requireAdmin, upload.single('photo'), (req, res) =>
   if (req.body.price !== undefined) products[idx].price = parseInt(req.body.price);
   if (req.body.available !== undefined) products[idx].available = req.body.available === 'true' || req.body.available === true;
   if (req.body.description !== undefined) products[idx].description = req.body.description;
+  if (req.body.stock !== undefined) {
+    const stock = Math.max(0, parseInt(req.body.stock, 10) || 0);
+    products[idx].stock = stock;
+    if (stock <= 0) products[idx].available = false;
+    else if (req.body.available === undefined) products[idx].available = true;
+  }
   if (req.body.categoryId !== undefined) {
     const categoryId = parseInt(req.body.categoryId);
     if (!isNaN(categoryId) && categories.some(c => c.id === categoryId)) {
@@ -1063,6 +1117,38 @@ app.post('/api/cart/sync', (req, res) => {
     lastName: tgUser.last_name || ''
   });
   res.json({ ok: true });
+});
+
+app.get('/api/geocode/reverse', (req, res) => {
+  const lat = parseFloat(req.query.lat);
+  const lon = parseFloat(req.query.lon);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+    return res.status(400).json({ error: 'Invalid coordinates' });
+  }
+
+  const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=18&addressdetails=1`;
+  const options = {
+    headers: {
+      'User-Agent': 'RedShop-MiniApp/1.0 (contact: support@redshop.local)',
+      'Accept-Language': 'ru'
+    }
+  };
+
+  https.get(url, options, (geoRes) => {
+    let body = '';
+    geoRes.on('data', chunk => { body += chunk; });
+    geoRes.on('end', () => {
+      try {
+        const data = JSON.parse(body);
+        const address = data.display_name || `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+        res.json({ address, lat, lon });
+      } catch {
+        res.json({ address: `${lat.toFixed(5)}, ${lon.toFixed(5)}`, lat, lon });
+      }
+    });
+  }).on('error', () => {
+    res.json({ address: `${lat.toFixed(5)}, ${lon.toFixed(5)}`, lat, lon });
+  });
 });
 
 app.get('/api/referrals/my', (req, res) => {

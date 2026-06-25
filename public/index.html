@@ -375,6 +375,23 @@
   </div>
 </div>
 
+<!-- Flavor Selection Modal -->
+<div id="flavorModal" class="modal-overlay hidden" onclick="closeOnOverlay(event, 'flavorModal')">
+  <div class="modal modal-flavor">
+    <div class="modal-header">
+      <h2 id="flavorModalTitle">Выберите вкус</h2>
+      <button class="btn-close" onclick="closeModal('flavorModal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="flavorModalGrid" class="flavor-pick-grid"></div>
+    </div>
+    <div class="modal-footer flavor-modal-footer">
+      <button type="button" class="btn-primary btn-full" id="flavorAddCartBtn" onclick="addSelectedFlavorToCart()">В корзину</button>
+      <button type="button" class="btn-green btn-full" id="flavorBuyNowBtn" onclick="buySelectedFlavorNow()">Купить сейчас</button>
+    </div>
+  </div>
+</div>
+
 <!-- Cart Modal -->
 <div id="cartModal" class="modal-overlay hidden" onclick="closeOnOverlay(event, 'cartModal')">
   <div class="modal">
@@ -415,6 +432,20 @@
           <span id="cartTotal">0 сом</span>
         </div>
       </div>
+      <div class="cart-checkout-fields" id="cartCheckoutFields">
+        <div class="form-group">
+          <label>Телефон *</label>
+          <input type="tel" id="cartPhone" class="form-input" placeholder="+996 555 123 456" autocomplete="tel">
+        </div>
+        <div class="form-group">
+          <label>Точный адрес *</label>
+          <div class="address-input-row">
+            <input type="text" id="cartAddress" class="form-input" placeholder="Улица, дом, квартира">
+            <button type="button" class="btn-geo" id="cartGeoBtn"
+              onclick="fillAddressFromGeolocation('cartAddress', 'cartGeoBtn')" title="Определить адрес" aria-label="Геолокация">📍</button>
+          </div>
+        </div>
+      </div>
       <button class="btn-primary btn-full" onclick="checkout()" id="checkoutBtn" disabled>
         Оформить заказ
       </button>
@@ -446,7 +477,11 @@
         </div>
         <div class="form-group">
           <label>Точный адрес *</label>
-          <input type="text" id="buyAddress" class="form-input" placeholder="Улица, дом, квартира" required>
+          <div class="address-input-row">
+            <input type="text" id="buyAddress" class="form-input" placeholder="Улица, дом, квартира" required>
+            <button type="button" class="btn-geo" id="buyGeoBtn"
+              onclick="fillAddressFromGeolocation('buyAddress', 'buyGeoBtn')" title="Определить адрес" aria-label="Геолокация">📍</button>
+          </div>
         </div>
         <div class="form-group">
           <label>Комментарий</label>
@@ -599,6 +634,10 @@
             <div class="form-group">
               <label>Старая цена (сом, необяз.)</label>
               <input type="number" name="oldPrice" class="form-input" placeholder="450" min="1">
+            </div>
+            <div class="form-group">
+              <label>Остаток (шт)</label>
+              <input type="number" name="stock" class="form-input" placeholder="10" min="0" value="10">
             </div>
           </div>
           <div class="form-group">

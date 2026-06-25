@@ -41,7 +41,9 @@ const state = {
   pendingFreeOrder: false,
   currentAppearance: 'dark',
   currentAccent: 'scarlet',
-  banner: null
+  banner: null,
+  flavorModalCategoryId: null,
+  selectedFlavorId: null
 };
 
 const DEFAULT_BANNER = {
@@ -857,6 +859,86 @@ function getCategoryProductCount(categoryId) {
   return state.products.filter(p => p.categoryId === categoryId).length;
 }
 
+function getProductStock(product) {
+  return Math.max(0, Math.round(Number(product?.stock) || 0));
+}
+
+function isProductPurchasable(product) {
+  if (!product) return false;
+  if (product.available === false) return false;
+  return getProductStock(product) > 0;
+}
+
+function getProductsByCategory(categoryId) {
+  return state.products.filter(p => p.categoryId === categoryId);
+}
+
+function getFlavorEmoji(product) {
+  const name = (product.description || product.name || '').toLowerCase();
+  const map = [
+    [/watermelon|арбуз/, '🍉'],
+    [/mango|манго/, '🥭'],
+    [/peach|персик/, '🍑'],
+    [/blueber|черник/, '🫐'],
+    [/strawber|клубник/, '🍓'],
+    [/kiwi|киви/, '🥝'],
+    [/lychee|личи/, '🍒'],
+    [/grape|виноград/, '🍇'],
+    [/cola|кола/, '🥤'],
+    [/mint|мят/, '🌿'],
+    [/apple|яблок/, '🍎'],
+    [/banana|банан/, '🍌'],
+    [/lemon|лимон/, '🍋']
+  ];
+  for (const [re, emoji] of map) {
+    if (re.test(name)) return emoji;
+  }
+  return '💨';
+}
+
+function getFilteredBrands() {
+  let cats = state.categories;
+  const q = (state.catalogSearchQuery || '').trim().toLowerCase();
+
+  if (state.selectedCategoryId) {
+    cats = cats.filter(c => c.id === state.selectedCategoryId);
+  }
+
+  if (q) {
+    cats = cats.filter(cat => {
+      if ((cat.name || '').toLowerCase().includes(q)) return true;
+      return getProductsByCategory(cat.id).some(p =>
+        (p.name || '').toLowerCase().includes(q) ||
+        (p.description || '').toLowerCase().includes(q)
+      );
+    });
+  }
+
+  return cats.filter(cat => getProductsByCategory(cat.id).length > 0);
+}
+
+function getBrandPriceRange(categoryId) {
+  const purchasable = getProductsByCategory(categoryId).filter(isProductPurchasable);
+  const list = purchasable.length ? purchasable : getProductsByCategory(categoryId);
+  if (!list.length) return null;
+  const prices = list.map(p => Number(p.price) || 0);
+  const min = Math.min(...prices);
+  const max = Math.max(...prices);
+  return min === max ? `${min} сом` : `от ${min} сом`;
+}
+
+function getBrandInStockCount(categoryId) {
+  return getProductsByCategory(categoryId).filter(isProductPurchasable).length;
+}
+
+function pluralFlavors(n) {
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return 'вкус';
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return 'вкуса';
+  return 'вкусов';
+}
+
 async function initShop(attempt = 1) {
   const catalog = document.getElementById('catalog');
   const empty = document.getElementById('catalogEmpty');
@@ -1030,16 +1112,19 @@ function renderCatalog() {
   const empty = document.getElementById('catalogEmpty');
   const count = document.getElementById('catalogCount');
 
-  const products = getFilteredCatalogProducts();
+  const brands = getFilteredBrands();
 
-  grid.className = 'catalog-grid';
+  grid.className = 'catalog-grid categories-grid';
   grid.innerHTML = '';
 
+  const flavorTotal = brands.reduce((sum, cat) => sum + getProductsByCategory(cat.id).length, 0);
   if (count) {
-    count.textContent = `${products.length} товаров`;
+    count.textContent = brands.length
+      ? `${brands.length} бренд${brands.length === 1 ? '' : brands.length < 5 ? 'а' : 'ов'} · ${flavorTotal} ${pluralFlavors(flavorTotal)}`
+      : '0 брендов';
   }
 
-  if (products.length === 0) {
+  if (brands.length === 0) {
     empty.classList.remove('hidden');
     const hasFilters = state.selectedCategoryId || (state.catalogSearchQuery || '').trim();
     empty.innerHTML = `
@@ -1049,35 +1134,135 @@ function renderCatalog() {
   }
   empty.classList.add('hidden');
 
-  products.forEach((product) => {
-    const photoSrc = normalizePhotoSrc(product.photo);
-    const discountPct = getProductDiscountPercent(product);
-    const inCart = state.cart.some(c => c.id === product.id);
-    const card = document.createElement('div');
-    card.className = `product-card${!product.available ? ' out-of-stock' : ''}${inCart ? ' in-cart' : ''}`;
-    card.id = `productCard_${product.id}`;
+  brands.forEach(cat => {
+    const flavors = getProductsByCategory(cat.id);
+    const inStock = getBrandInStockCount(cat.id);
+    const allOut = inStock === 0;
+    const photoSrc = normalizePhotoSrc(cat.photo || flavors[0]?.photo);
+    const priceLabel = getBrandPriceRange(cat.id) || '—';
 
+    const card = document.createElement('div');
+    card.className = `category-card${allOut ? ' out-of-stock' : ''}`;
+    card.onclick = () => openFlavorModal(cat.id);
     card.innerHTML = `
-      <div class="product-photo-wrap" onclick='previewImage(${JSON.stringify(photoSrc)})'>
-        <img class="product-photo" src="${photoSrc}" alt="${escapeHtml(product.name)}"
+      <div class="category-card-photo-wrap">
+        <img class="category-card-photo" src="${photoSrc}" alt="${escapeHtml(cat.name)}"
           loading="lazy" onerror="this.src='/img/placeholder.svg'">
-        ${discountPct ? `<span class="product-badge product-badge-discount">−${discountPct}%</span>` : ''}
-        ${product.available
-          ? '<span class="product-badge product-badge-stock">В наличии</span>'
-          : '<div class="out-of-stock-overlay">Нет в наличии</div>'}
+        ${allOut ? '<div class="out-of-stock-overlay">Нет в наличии</div>' : ''}
       </div>
-      <div class="product-info">
-        <div class="product-name">${escapeHtml(product.description || product.name)}</div>
-        <div class="product-price-row">${formatProductPriceHtml(product)}</div>
+      <div class="category-card-body">
+        <div>
+          <div class="category-card-name">${escapeHtml(cat.name)}</div>
+          <div class="category-card-meta">${flavors.length} ${pluralFlavors(flavors.length)} · ${priceLabel}</div>
+          <div class="category-card-meta">${inStock > 0 ? `${inStock} в наличии` : 'Нет в наличии'}</div>
+        </div>
+        <div class="category-card-arrow">›</div>
       </div>
-      <button class="btn-buy" type="button"
-        ${!product.available ? 'disabled' : ''}
-        onclick="openBuyModal(${product.id})">
-        Купить
-      </button>
     `;
     grid.appendChild(card);
   });
+}
+
+function getFilteredModalFlavors(categoryId) {
+  let flavors = getProductsByCategory(categoryId);
+  const q = (state.catalogSearchQuery || '').trim().toLowerCase();
+  if (q) {
+    flavors = flavors.filter(p =>
+      (p.name || '').toLowerCase().includes(q) ||
+      (p.description || '').toLowerCase().includes(q)
+    );
+  }
+  return flavors;
+}
+
+function openFlavorModal(categoryId) {
+  const cat = state.categories.find(c => c.id === categoryId);
+  if (!cat) return;
+
+  state.flavorModalCategoryId = categoryId;
+  const flavors = getFilteredModalFlavors(categoryId);
+  const firstPurchasable = flavors.find(isProductPurchasable);
+  state.selectedFlavorId = firstPurchasable ? firstPurchasable.id : (flavors[0]?.id || null);
+
+  document.getElementById('flavorModalTitle').textContent = cat.name;
+  renderFlavorModalGrid(flavors);
+  updateFlavorModalActions();
+  openModal('flavorModal');
+}
+
+function renderFlavorModalGrid(flavors) {
+  const grid = document.getElementById('flavorModalGrid');
+  grid.innerHTML = '';
+
+  if (flavors.length === 0) {
+    grid.innerHTML = '<div class="empty-state"><div class="empty-icon">📦</div><div>Нет вкусов</div></div>';
+    return;
+  }
+
+  flavors.forEach(product => {
+    const stock = getProductStock(product);
+    const purchasable = isProductPurchasable(product);
+    const selected = state.selectedFlavorId === product.id;
+    const card = document.createElement('button');
+    card.type = 'button';
+    card.className = `flavor-pick-card${selected ? ' selected' : ''}${!purchasable ? ' out-of-stock' : ''}`;
+    card.onclick = () => selectFlavor(product.id);
+    card.innerHTML = `
+      <span class="flavor-pick-emoji">${getFlavorEmoji(product)}</span>
+      <span class="flavor-pick-name">${escapeHtml(product.description || product.name)}</span>
+      <span class="flavor-pick-stock">${purchasable ? `${stock} шт` : 'Нет в наличии'}</span>
+      ${selected ? '<span class="flavor-pick-check">✓</span>' : ''}
+    `;
+    grid.appendChild(card);
+  });
+}
+
+function selectFlavor(productId) {
+  state.selectedFlavorId = productId;
+  renderFlavorModalGrid(getFilteredModalFlavors(state.flavorModalCategoryId));
+  updateFlavorModalActions();
+}
+
+function updateFlavorModalActions() {
+  const product = state.products.find(p => p.id === state.selectedFlavorId);
+  const purchasable = isProductPurchasable(product);
+  const addBtn = document.getElementById('flavorAddCartBtn');
+  const buyBtn = document.getElementById('flavorBuyNowBtn');
+  if (addBtn) addBtn.disabled = !purchasable;
+  if (buyBtn) buyBtn.disabled = !purchasable;
+}
+
+function addSelectedFlavorToCart() {
+  const productId = state.selectedFlavorId;
+  if (!productId) return;
+  const product = state.products.find(p => p.id === productId);
+  if (!isProductPurchasable(product)) {
+    showToast('Товар недоступен', 'error');
+    return;
+  }
+
+  const stock = getProductStock(product);
+  const existing = state.cart.find(c => c.id === productId);
+  if (existing) {
+    if (existing.qty >= stock) {
+      showToast(`Максимум ${stock} шт`, 'error');
+      return;
+    }
+    existing.qty += 1;
+    showToast('Количество обновлено ✓', 'success');
+  } else {
+    state.cart.push({ ...product, qty: 1 });
+    showToast('Добавлено в корзину ✓', 'success');
+  }
+  updateCartUI();
+  closeModal('flavorModal');
+}
+
+function buySelectedFlavorNow() {
+  const productId = state.selectedFlavorId;
+  if (!productId) return;
+  closeModal('flavorModal');
+  openBuyModal(productId);
 }
 
 function previewImage(src) {
@@ -1089,7 +1274,7 @@ function previewImage(src) {
 // ─── Cart ─────────────────────────────────────────────────────────────────────
 function toggleCart(productId) {
   const product = state.products.find(p => p.id === productId);
-  if (!product || !product.available) return;
+  if (!isProductPurchasable(product)) return;
 
   const existing = state.cart.find(c => c.id === productId);
   if (existing) {
@@ -1105,6 +1290,14 @@ function toggleCart(productId) {
 function changeQty(productId, delta) {
   const item = state.cart.find(c => c.id === productId);
   if (!item) return;
+  const product = state.products.find(p => p.id === productId);
+  const stock = getProductStock(product);
+
+  if (delta > 0 && item.qty >= stock) {
+    showToast(`Максимум ${stock} шт`, 'error');
+    return;
+  }
+
   item.qty += delta;
   if (item.qty <= 0) {
     state.cart = state.cart.filter(c => c.id !== productId);
@@ -1145,7 +1338,7 @@ function updateCartUI() {
 
 function openBuyModal(productId) {
   const product = state.products.find(p => p.id === productId);
-  if (!product || !product.available) return;
+  if (!isProductPurchasable(product)) return;
 
   state.buyProductId = productId;
   state.buyUseBalance = false;
@@ -1222,6 +1415,7 @@ async function submitBuyOrder(e) {
     closeModal('buyOrderModal');
     state.buyProductId = null;
     state.buyUseBalance = false;
+    await loadProducts();
     showToast('Заказ оформлен ✓', 'success');
     redirectToBot();
   } catch (err) {
@@ -1261,17 +1455,20 @@ function renderCartItems() {
   const discountRow = document.getElementById('discountRow');
   const discountDisplay = document.getElementById('cartDiscountDisplay');
   const checkoutBtn = document.getElementById('checkoutBtn');
+  const checkoutFields = document.getElementById('cartCheckoutFields');
 
   container.innerHTML = '';
 
   if (state.cart.length === 0) {
     empty.classList.remove('hidden');
     footer.style.display = 'none';
+    if (checkoutFields) checkoutFields.style.display = 'none';
     return;
   }
 
   empty.classList.add('hidden');
   footer.style.display = '';
+  if (checkoutFields) checkoutFields.style.display = '';
 
   state.cart.forEach(item => {
     const el = document.createElement('div');
@@ -1280,7 +1477,7 @@ function renderCartItems() {
       <img class="cart-item-photo" src="${item.photo}" alt="${item.name}"
         onerror="this.src='/img/placeholder.svg'">
       <div class="cart-item-info">
-        <div class="cart-item-name">${item.name}</div>
+        <div class="cart-item-name">${escapeHtml(item.description || item.name)}</div>
         <div class="cart-item-price">${item.price * item.qty} сом</div>
       </div>
       <div class="cart-item-qty">
@@ -1329,6 +1526,13 @@ async function checkout() {
     return;
   }
 
+  const phone = document.getElementById('cartPhone')?.value?.trim();
+  const address = document.getElementById('cartAddress')?.value?.trim();
+  if (!phone || !address) {
+    showToast('Заполните телефон и адрес', 'error');
+    return;
+  }
+
   const tgUser = tg?.initDataUnsafe?.user;
   const subtotal = state.cart.reduce((s, c) => s + c.price * c.qty, 0);
   const payment = calcOrderPayment(subtotal, state.cartUseBalance);
@@ -1337,7 +1541,16 @@ async function checkout() {
     userId: tgUser?.id || null,
     userName: tgUser ? `${tgUser.first_name || ''} ${tgUser.last_name || ''}`.trim() : 'Аноним',
     username: tgUser?.username || '',
-    items: state.cart.map(c => ({ id: c.id, name: c.name, price: c.price, qty: c.qty })),
+    phone,
+    address,
+    items: state.cart.map(c => ({
+      id: c.id,
+      name: c.name,
+      description: c.description || c.name,
+      categoryId: c.categoryId,
+      price: c.price,
+      qty: c.qty
+    })),
     total: payment.subtotal,
     useBalance: payment.balanceUsed,
     finalTotal: payment.finalTotal
@@ -1349,6 +1562,15 @@ async function checkout() {
   const useApiFlow = payment.balanceUsed > 0 || state.pendingFreeOrder || state.promoDiscount > 0
     || !(tg && tg.sendData && tg.initDataUnsafe?.user);
 
+  const finishCheckout = async () => {
+    state.cart = [];
+    state.cartUseBalance = false;
+    syncCartToServer();
+    updateCartUI();
+    await loadProducts();
+    showOrderSuccess(orderData, savedCart);
+  };
+
   if (useApiFlow) {
     try {
       const result = await submitOrderViaAPI(orderData);
@@ -1356,14 +1578,9 @@ async function checkout() {
       state.promoDiscount = 0;
       state.pendingFreeOrder = false;
       await refreshUserBalance();
-      state.cart = [];
-      state.cartUseBalance = false;
-      syncCartToServer();
-      updateCartUI();
-      updateCartUI();
-      showOrderSuccess(orderData, savedCart);
-    } catch {
-      showToast('Ошибка оформления заказа', 'error');
+      await finishCheckout();
+    } catch (err) {
+      showToast(err.message || 'Ошибка оформления заказа', 'error');
     }
     return;
   }
@@ -1374,20 +1591,92 @@ async function checkout() {
     } catch {
       await submitOrderViaAPI(orderData);
     }
-    state.cart = [];
-    state.cartUseBalance = false;
-    syncCartToServer();
-    updateCartUI();
-    showOrderSuccess(orderData, savedCart);
+    await finishCheckout();
   } else {
-    // Dev mode or no TG context — use API directly
-    await submitOrderViaAPI(orderData);
-    const savedCart = [...state.cart];
-    state.cart = [];
-    state.cartUseBalance = false;
-    syncCartToServer();
-    updateCartUI();
-    showOrderSuccess(orderData, savedCart);
+    try {
+      await submitOrderViaAPI(orderData);
+      await finishCheckout();
+    } catch (err) {
+      showToast(err.message || 'Ошибка оформления заказа', 'error');
+    }
+  }
+}
+
+function requestBrowserGeolocation() {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) {
+      reject(new Error('Геолокация недоступна'));
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      pos => resolve({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
+      () => reject(new Error('Не удалось получить геопозицию')),
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 }
+    );
+  });
+}
+
+function requestUserCoordinates() {
+  return new Promise((resolve, reject) => {
+    const lm = tg?.LocationManager;
+    if (lm && typeof lm.init === 'function') {
+      try {
+        lm.init(() => {
+          if (lm.isLocationAvailable && typeof lm.getLocation === 'function') {
+            lm.getLocation((location) => {
+              if (location?.latitude != null && location?.longitude != null) {
+                resolve({ lat: location.latitude, lon: location.longitude });
+              } else {
+                requestBrowserGeolocation().then(resolve).catch(reject);
+              }
+            });
+          } else {
+            requestBrowserGeolocation().then(resolve).catch(reject);
+          }
+        });
+        return;
+      } catch {
+        // fall through to browser API
+      }
+    }
+    requestBrowserGeolocation().then(resolve).catch(reject);
+  });
+}
+
+async function reverseGeocode(lat, lon) {
+  try {
+    const res = await fetch(`${API}/geocode/reverse?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.address) return data.address;
+    }
+  } catch {}
+  return `${Number(lat).toFixed(5)}, ${Number(lon).toFixed(5)}`;
+}
+
+async function fillAddressFromGeolocation(inputId, btnId) {
+  const input = document.getElementById(inputId);
+  const btn = document.getElementById(btnId);
+  if (!input) return;
+
+  const originalHtml = btn?.innerHTML;
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '⏳';
+  }
+
+  try {
+    const coords = await requestUserCoordinates();
+    const address = await reverseGeocode(coords.lat, coords.lon);
+    input.value = address;
+    showToast('Адрес определён ✓', 'success');
+  } catch (err) {
+    showToast(err.message || 'Не удалось определить адрес', 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = originalHtml || '📍';
+    }
   }
 }
 
@@ -2263,9 +2552,18 @@ function renderAdminProducts() {
             : `${product.price} сом`}</span>
           <span class="status-pill available">${escapeHtml(getCategoryName(product.categoryId))}</span>
           <span class="admin-product-sales">Продано: ${product.sales || 0}</span>
-          <span class="status-pill ${product.available ? 'available' : 'unavailable'}">
-            ${product.available ? 'В наличии' : 'Нет в наличии'}
+          <span class="status-pill ${isProductPurchasable(product) ? 'available' : 'unavailable'}">
+            ${isProductPurchasable(product) ? 'В наличии' : 'Нет в наличии'}
           </span>
+          <span class="admin-product-sales">Остаток: ${getProductStock(product)} шт</span>
+        </div>
+        <div class="form-group" style="margin-top:8px">
+          <label style="font-size:11px;color:var(--grey)">Остаток (шт)</label>
+          <div class="inline-edit-row" style="margin-top:4px">
+            <input type="number" class="form-input" id="stockInput_${product.id}"
+              value="${getProductStock(product)}" placeholder="0" min="0">
+            <button class="btn-primary btn-sm" onclick="saveStock(${product.id})">✓</button>
+          </div>
         </div>
         <div class="form-group" style="margin-top:8px">
           <label style="font-size:11px;color:var(--grey)">Позиция</label>
@@ -2308,6 +2606,23 @@ function toggleEditPrice(id) {
 
 function cancelEdit(id) {
   document.getElementById(`editRow_${id}`).classList.add('hidden');
+}
+
+async function saveStock(id) {
+  const input = document.getElementById(`stockInput_${id}`);
+  const stock = Math.max(0, parseInt(input?.value, 10) || 0);
+
+  try {
+    const fd = new FormData();
+    fd.append('stock', stock);
+    await adminFormFetch('PUT', `${API}/products/${id}`, fd);
+    showToast('Остаток обновлён ✓', 'success');
+    await loadAdminProducts();
+    if (state.selectedCategoryId) renderCatalog();
+    else showCategoriesView();
+  } catch {
+    showToast('Ошибка обновления', 'error');
+  }
 }
 
 async function savePrice(id) {
@@ -2443,6 +2758,8 @@ async function addProduct(e) {
   fd.append('description', form.elements['description']?.value?.trim() || '');
   const oldPrice = form.elements['oldPrice']?.value?.trim();
   if (oldPrice) fd.append('oldPrice', oldPrice);
+  const stockVal = form.elements['stock']?.value?.trim();
+  if (stockVal !== undefined && stockVal !== '') fd.append('stock', stockVal);
 
   const fileInput = document.getElementById('addProductPhoto');
   if (fileInput?.files[0]) fd.append('photo', fileInput.files[0]);
