@@ -33,19 +33,31 @@
 <div id="bonusView" class="main-tab-view hidden">
   <div class="bonus-screen">
     <header class="bonus-header">
-      <h1 class="bonus-title">Колесо Фортуны</h1>
+      <h1 class="bonus-title"><span class="bonus-title-icon" aria-hidden="true">✨</span> Колесо Фортуны</h1>
       <p class="bonus-subtitle">Крутите раз в 24 часа и получайте приз</p>
     </header>
 
-    <div class="wheel-wrapper bonus-wheel-wrapper">
-      <div class="wheel-pointer-wrap">
-        <div class="wheel-pointer-arrow">▼</div>
+    <div class="bonus-wheel-area">
+      <div class="wheel-wrapper bonus-wheel-wrapper">
+        <div class="wheel-pointer-wrap">
+          <div class="wheel-pointer-arrow">▼</div>
+        </div>
+        <canvas id="wheelCanvas" width="320" height="320"></canvas>
+        <div class="wheel-win-glow" id="wheelWinGlow"></div>
       </div>
-      <canvas id="wheelCanvas" width="320" height="320"></canvas>
-      <div class="wheel-win-glow" id="wheelWinGlow"></div>
     </div>
 
-    <div id="spinResultBox" class="spin-result hidden">
+    <div class="bonus-actions">
+      <button id="spinBtn" class="btn-primary btn-full btn-spin" onclick="spinWheel()">
+        Крутить
+      </button>
+      <div id="spinCooldown" class="spin-cooldown hidden">
+        <p class="spin-cooldown-label">Следующая прокрутка через:</p>
+        <p id="spinCooldownTimer" class="spin-cooldown-timer">00:00:00</p>
+      </div>
+    </div>
+
+    <div id="spinResultBox" class="bonus-win-popup hidden">
       <div class="spin-result-inner">
         <div id="spinResultIcon" class="spin-result-emoji">🎉</div>
         <div id="spinResultText" class="spin-result-amount"></div>
@@ -54,12 +66,12 @@
       <div class="spin-sparkles" id="spinSparkles"></div>
     </div>
 
-    <button id="spinBtn" class="btn-primary btn-full btn-spin" onclick="spinWheel()">
-      Крутить
-    </button>
-    <div id="spinCooldown" class="spin-cooldown hidden">
-      <p class="spin-cooldown-label">Следующая прокрутка через:</p>
-      <p id="spinCooldownTimer" class="spin-cooldown-timer">00:00:00</p>
+    <div id="lastWinBox" class="bonus-last-win hidden">
+      <div class="bonus-last-win-icon" aria-hidden="true">🏆</div>
+      <div class="bonus-last-win-info">
+        <div class="bonus-last-win-label">Вы выиграли</div>
+        <div class="bonus-last-win-amount" id="lastWinAmount">0 сом</div>
+      </div>
     </div>
   </div>
 </div>
@@ -152,7 +164,9 @@
           <span class="profile-balance-unit">сом</span>
         </div>
       </div>
-      <div class="profile-balance-icon" aria-hidden="true">💰</div>
+      <div class="profile-balance-icon-wrap" aria-hidden="true">
+        <span class="profile-balance-icon">💰</span>
+      </div>
     </div>
 
     <div class="profile-stats-row">
@@ -166,26 +180,35 @@
       </div>
     </div>
 
+    <div id="profileDiscountCard" class="profile-discount-card hidden">
+      <div class="profile-discount-icon-wrap" aria-hidden="true">🎁</div>
+      <div class="profile-discount-info">
+        <div class="profile-discount-title" id="profileDiscountTitle">Скидка на заказ</div>
+        <div class="profile-discount-note" id="profileDiscountNote">При оформлении заказа</div>
+      </div>
+      <div class="profile-discount-amount" id="profileDiscountAmount">0 сом</div>
+    </div>
+
     <div class="profile-menu">
       <button type="button" class="profile-menu-item" onclick="openOrderHistory()">
-        <span class="profile-menu-icon" aria-hidden="true">📋</span>
+        <span class="profile-menu-icon-wrap profile-menu-icon-wrap--orders" aria-hidden="true">📋</span>
         <span class="profile-menu-text">История заказов</span>
-        <span class="profile-menu-arrow">›</span>
+        <span class="profile-menu-arrow">&gt;</span>
       </button>
       <button type="button" class="profile-menu-item" onclick="openReferralProgram()">
-        <span class="profile-menu-icon" aria-hidden="true">👥</span>
+        <span class="profile-menu-icon-wrap profile-menu-icon-wrap--referrals" aria-hidden="true">👥</span>
         <span class="profile-menu-text">Реферальная программа</span>
-        <span class="profile-menu-arrow">›</span>
+        <span class="profile-menu-arrow">&gt;</span>
       </button>
       <button type="button" class="profile-menu-item" onclick="openPromoScreen()">
-        <span class="profile-menu-icon" aria-hidden="true">🏷️</span>
+        <span class="profile-menu-icon-wrap profile-menu-icon-wrap--promo" aria-hidden="true">🏷️</span>
         <span class="profile-menu-text">Ввести промокод</span>
-        <span class="profile-menu-arrow">›</span>
+        <span class="profile-menu-arrow">&gt;</span>
       </button>
       <button type="button" class="profile-menu-item" onclick="openThemesScreen()">
-        <span class="profile-menu-icon" aria-hidden="true">🎨</span>
+        <span class="profile-menu-icon-wrap profile-menu-icon-wrap--themes" aria-hidden="true">🎨</span>
         <span class="profile-menu-text">Оформление интерфейса</span>
-        <span class="profile-menu-arrow">›</span>
+        <span class="profile-menu-arrow">&gt;</span>
       </button>
     </div>
   </div>

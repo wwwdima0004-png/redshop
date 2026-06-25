@@ -58,6 +58,7 @@ const APP_THEMES = {
 };
 
 const AGE_GATE_SKIP_KEY = 'redshop_age_skip';
+const LAST_WIN_KEY = 'redshop_last_win';
 const THEME_STORAGE_KEY = 'redshop_theme';
 
 // ─── API ─────────────────────────────────────────────────────────────────────
@@ -342,6 +343,30 @@ function renderProfile() {
 
   const referralsEl = document.getElementById('profileReferralsCount');
   if (referralsEl) referralsEl.textContent = String(state.referralCount ?? 0);
+
+  updateProfileDiscountCard();
+}
+
+function updateProfileDiscountCard() {
+  const card = document.getElementById('profileDiscountCard');
+  const amountEl = document.getElementById('profileDiscountAmount');
+  const titleEl = document.getElementById('profileDiscountTitle');
+  const noteEl = document.getElementById('profileDiscountNote');
+  if (!card) return;
+
+  if (state.pendingFreeOrder) {
+    card.classList.remove('hidden');
+    if (titleEl) titleEl.textContent = 'Бесплатный заказ';
+    if (noteEl) noteEl.textContent = 'При следующем оформлении';
+    if (amountEl) amountEl.textContent = '🎁';
+  } else if (state.promoDiscount > 0) {
+    card.classList.remove('hidden');
+    if (titleEl) titleEl.textContent = 'Скидка на заказ';
+    if (noteEl) noteEl.textContent = 'При оформлении заказа';
+    if (amountEl) amountEl.textContent = `${state.promoDiscount} сом`;
+  } else {
+    card.classList.add('hidden');
+  }
 }
 
 function profileMenuStub(section) {
@@ -532,6 +557,7 @@ async function refreshUserBalance() {
     if (balanceEl) balanceEl.textContent = String(state.userBalance);
     const refEl = document.getElementById('profileReferralsCount');
     if (refEl) refEl.textContent = String(state.referralCount);
+    updateProfileDiscountCard();
   } catch {}
 }
 
@@ -1383,7 +1409,34 @@ async function refreshRouletteStatus() {
 
 function initBonusWheel() {
   requestAnimationFrame(() => drawWheel(state.wheelRotation));
+  renderLastWinBox();
   refreshRouletteStatus();
+}
+
+function saveLastWin(prize) {
+  try {
+    localStorage.setItem(LAST_WIN_KEY, JSON.stringify({ prize, at: Date.now() }));
+  } catch {}
+  renderLastWinBox();
+}
+
+function renderLastWinBox() {
+  const box = document.getElementById('lastWinBox');
+  const amountEl = document.getElementById('lastWinAmount');
+  if (!box || !amountEl) return;
+
+  let data = null;
+  try {
+    data = JSON.parse(localStorage.getItem(LAST_WIN_KEY) || 'null');
+  } catch {}
+
+  if (!data || !data.prize) {
+    box.classList.add('hidden');
+    return;
+  }
+
+  amountEl.textContent = `${data.prize} сом`;
+  box.classList.remove('hidden');
 }
 
 function drawWheel(rotation, glowIntensity = 1) {
@@ -1582,6 +1635,7 @@ async function spinWheel() {
       updateRouletteUI({ canSpin: false, remainingMs: state.rouletteRemainingMs });
       startRouletteCountdown();
       showToast(`🎉 +${prize} сом на баланс!`, 'success');
+      saveLastWin(prize);
 
       state.spinning = false;
     });
