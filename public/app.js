@@ -138,6 +138,7 @@ async function api(method, endpoint, body, adminRequired = false) {
 
 // ─── Toast notifications ─────────────────────────────────────────────────────
 let toastTimer = null;
+let cartSyncTimer = null;
 function showToast(msg, type = '') {
   const el = document.getElementById('toast');
   el.textContent = msg;
@@ -165,11 +166,49 @@ document.addEventListener('DOMContentLoaded', async () => {
   initTheme();
   initAgeGate();
   switchMainTab('catalog');
+  handleDeepLinkOpen();
   await Promise.all([initShop(), loadBanner()]);
   refreshUserBalance();
   renderProfile();
   initAdminCheck();
 });
+
+function handleDeepLinkOpen() {
+  const open = new URLSearchParams(window.location.search).get('open');
+  if (open === 'cart') {
+    switchMainTab('catalog');
+    setTimeout(() => openCart(), 400);
+  } else if (open === 'bonus') {
+    switchMainTab('bonus');
+  }
+}
+
+async function syncCartToServer() {
+  const initData = getTelegramInitData();
+  if (!initData) return;
+  try {
+    await fetch(`${API}/cart/sync`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-telegram-init-data': initData
+      },
+      body: JSON.stringify({
+        items: state.cart.map(c => ({
+          id: c.id,
+          name: c.name,
+          price: c.price,
+          qty: c.qty
+        }))
+      })
+    });
+  } catch {}
+}
+
+function scheduleCartSync() {
+  clearTimeout(cartSyncTimer);
+  cartSyncTimer = setTimeout(syncCartToServer, 400);
+}
 
 function loadThemeSettings() {
   let appearance = 'dark';
@@ -1100,6 +1139,8 @@ function updateCartUI() {
 
   // Checkout button
   if (checkoutBtn) checkoutBtn.disabled = state.cart.length === 0;
+
+  scheduleCartSync();
 }
 
 function openBuyModal(productId) {
@@ -1317,6 +1358,8 @@ async function checkout() {
       await refreshUserBalance();
       state.cart = [];
       state.cartUseBalance = false;
+      syncCartToServer();
+      updateCartUI();
       updateCartUI();
       showOrderSuccess(orderData, savedCart);
     } catch {
@@ -1333,6 +1376,7 @@ async function checkout() {
     }
     state.cart = [];
     state.cartUseBalance = false;
+    syncCartToServer();
     updateCartUI();
     showOrderSuccess(orderData, savedCart);
   } else {
@@ -1341,6 +1385,7 @@ async function checkout() {
     const savedCart = [...state.cart];
     state.cart = [];
     state.cartUseBalance = false;
+    syncCartToServer();
     updateCartUI();
     showOrderSuccess(orderData, savedCart);
   }

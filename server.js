@@ -85,6 +85,7 @@ function ensureDataFiles() {
 
   migrateUsersBalance();
   migrateUsersReferrer();
+  migrateUsersNotifications();
 
   if (!fs.existsSync(path.join(DATA_DIR, 'promocodes.json'))) writeJSON('promocodes.json', []);
   if (!fs.existsSync(path.join(DATA_DIR, 'banner.json'))) writeJSON('banner.json', defaultBanner());
@@ -115,6 +116,10 @@ const REFERRAL_BONUS = 30;
 const BOT_USERNAME = 'Red1shopbot';
 const ROULETTE_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 const ROULETTE_SECTORS = [50, 100, 300, 500];
+const NOTIFICATION_TZ = process.env.NOTIFICATION_TZ || 'Asia/Bishkek';
+const NOTIFICATION_CHECK_MS = 12 * 60 * 1000;
+const CART_REMINDER_1_MS = 60 * 60 * 1000;
+const CART_REMINDER_2_MS = 24 * 60 * 60 * 1000;
 
 function getRouletteStatus(user) {
   if (!user || !user.lastSpinDate) {
@@ -164,6 +169,251 @@ function migrateUsersReferrer() {
   if (changed) writeJSON('users.json', users);
 }
 
+function migrateUsersNotifications() {
+  const users = readJSON('users.json');
+  if (!Array.isArray(users)) return;
+  let changed = false;
+  users.forEach(u => {
+    if (!Array.isArray(u.cart)) { u.cart = []; changed = true; }
+    if (u.cartUpdatedAt === undefined) { u.cartUpdatedAt = null; changed = true; }
+    if (typeof u.cartRemindersSent !== 'number') { u.cartRemindersSent = 0; changed = true; }
+    if (u.lastActive === undefined) { u.lastActive = null; changed = true; }
+    if (u.lastWheelNotifyDate === undefined) { u.lastWheelNotifyDate = null; changed = true; }
+  });
+  if (changed) writeJSON('users.json', users);
+}
+
+function initUserNotificationFields(user) {
+  if (!Array.isArray(user.cart)) user.cart = [];
+  if (user.cartUpdatedAt === undefined) user.cartUpdatedAt = null;
+  if (typeof user.cartRemindersSent !== 'number') user.cartRemindersSent = 0;
+  if (user.lastActive === undefined) user.lastActive = null;
+  if (user.lastWheelNotifyDate === undefined) user.lastWheelNotifyDate = null;
+  return user;
+}
+
+function normalizeCartItem(item) {
+  const id = Number(item?.id);
+  const qty = Math.max(1, Math.min(99, Math.round(Number(item?.qty) || 1)));
+  const price = Math.max(0, Math.round(Number(item?.price) || 0));
+  const name = String(item?.name || '').trim().slice(0, 200);
+  if (!id || !name) return null;
+  return { id, name, price, qty };
+}
+
+function cartSignature(cart) {
+  return JSON.stringify(
+    (cart || [])
+      .map(i => ({ id: Number(i.id), qty: Number(i.qty) }))
+      .sort((a, b) => a.id - b.id)
+  );
+}
+
+function clearUserCart(userId) {
+  if (!userId) return;
+  const users = readJSON('users.json');
+  const user = users.find(u => Number(u.id) === Number(userId));
+  if (!user) return;
+  initUserNotificationFields(user);
+  user.cart = [];
+  user.cartUpdatedAt = null;
+  user.cartRemindersSent = 0;
+  writeJSON('users.json', users);
+}
+
+function syncUserCart(userId, items, profile = {}) {
+  const users = readJSON('users.json');
+  let user = users.find(u => Number(u.id) === Number(userId));
+  if (!user) {
+    user = ensureUserRecord(userId, profile);
+    return syncUserCart(userId, items, profile);
+  }
+  initUserNotificationFields(user);
+  if (profile.username && !user.username) user.username = profile.username;
+  if (profile.firstName && !user.firstName) user.firstName = profile.firstName;
+  if (profile.lastName && !user.lastName) user.lastName = profile.lastName;
+
+  const normalized = (Array.isArray(items) ? items : [])
+    .map(normalizeCartItem)
+    .filter(Boolean);
+  const prevSig = cartSignature(user.cart);
+  const nextSig = cartSignature(normalized);
+
+  user.cart = normalized;
+  if (normalized.length === 0) {
+    user.cartUpdatedAt = null;
+    user.cartRemindersSent = 0;
+  } else if (nextSig !== prevSig) {
+    user.cartUpdatedAt = new Date().toISOString();
+    user.cartRemindersSent = 0;
+  }
+
+  writeJSON('users.json', users);
+  return user;
+}
+
+function touchUserActivity(userId, profile = {}) {
+  const users = readJSON('users.json');
+  let user = users.find(u => Number(u.id) === Number(userId));
+  if (!user) {
+    ensureUserRecord(userId, profile);
+    return touchUserActivity(userId, profile);
+  }
+  initUserNotificationFields(user);
+  user.lastActive = new Date().toISOString();
+  if (profile.username) user.username = profile.username;
+  if (profile.firstName) user.firstName = profile.firstName;
+  if (profile.lastName) user.lastName = profile.lastName;
+  writeJSON('users.json', users);
+  return user;
+}
+
+function getLocalTimeParts(date = new Date()) {
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: NOTIFICATION_TZ,
+    hour: 'numeric',
+    minute: 'numeric',
+    hour12: false,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  });
+  const parts = Object.fromEntries(
+    fmt.formatToParts(date)
+      .filter(p => p.type !== 'literal')
+      .map(p => [p.type, p.value])
+  );
+  return {
+    hour: parseInt(parts.hour, 10),
+    dateKey: `${parts.year}-${parts.month}-${parts.day}`
+  };
+}
+
+function isInNotificationWindow(date = new Date()) {
+  const { hour } = getLocalTimeParts(date);
+  return hour >= 12 && hour < 21;
+}
+
+function getWebAppOpenUrl(open) {
+  const base = WEBAPP_URL.replace(/\/$/, '');
+  const sep = base.includes('?') ? '&' : '?';
+  return `${base}${sep}open=${encodeURIComponent(open)}`;
+}
+
+function formatCartReminderList(cart) {
+  return (cart || []).map(i => `${i.name} ×${i.qty}`).join(', ');
+}
+
+function sendCartReminderMessage(user) {
+  if (!bot || !user?.id) return;
+  const cart = Array.isArray(user.cart) ? user.cart : [];
+  if (cart.length === 0) return;
+  const list = formatCartReminderList(cart);
+  const text = `Привет! Мы заметили, что в твоей корзине остались товары: ${list}. Не забудь оформить заказ, пока они есть в наличии! 😉`;
+  const keyboard = {
+    inline_keyboard: [[{
+      text: '🛒 Перейти в корзину',
+      web_app: { url: getWebAppOpenUrl('cart') }
+    }]]
+  };
+  return bot.sendMessage(user.id, text, { reply_markup: keyboard });
+}
+
+function sendWheelReminderMessage(user) {
+  if (!bot || !user?.id) return;
+  const text = 'Твоя бесплатная прокрутка готова! 🎰 Испытай удачу и забери приз';
+  const keyboard = {
+    inline_keyboard: [[{
+      text: '🎰 Крутить колесо',
+      web_app: { url: getWebAppOpenUrl('bonus') }
+    }]]
+  };
+  return bot.sendMessage(user.id, text, { reply_markup: keyboard });
+}
+
+let notificationProcessing = false;
+
+async function processScheduledNotifications() {
+  if (!bot || notificationProcessing) return;
+  if (!isInNotificationWindow()) return;
+
+  notificationProcessing = true;
+  try {
+    const users = readJSON('users.json');
+    if (!Array.isArray(users) || users.length === 0) return;
+
+    const now = Date.now();
+    const { dateKey: todayKey } = getLocalTimeParts();
+    let changed = false;
+
+    for (const user of users) {
+      if (!user?.id) continue;
+      initUserNotificationFields(user);
+      let userChanged = false;
+
+      const cart = user.cart || [];
+      if (cart.length > 0 && user.cartUpdatedAt) {
+        const updatedAt = new Date(user.cartUpdatedAt).getTime();
+        if (Number.isFinite(updatedAt)) {
+          const elapsed = now - updatedAt;
+          const sent = user.cartRemindersSent || 0;
+          if (sent === 0 && elapsed >= CART_REMINDER_1_MS) {
+            try {
+              await sendCartReminderMessage(user);
+              user.cartRemindersSent = 1;
+              userChanged = true;
+            } catch (err) {
+              console.warn(`Cart reminder failed for ${user.id}:`, err.message);
+            }
+          } else if (sent === 1 && elapsed >= CART_REMINDER_2_MS) {
+            try {
+              await sendCartReminderMessage(user);
+              user.cartRemindersSent = 2;
+              userChanged = true;
+            } catch (err) {
+              console.warn(`Cart reminder 2 failed for ${user.id}:`, err.message);
+            }
+          }
+        }
+      }
+
+      const roulette = getRouletteStatus(user);
+      if (roulette.canSpin && user.lastWheelNotifyDate !== todayKey) {
+        try {
+          await sendWheelReminderMessage(user);
+          user.lastWheelNotifyDate = todayKey;
+          userChanged = true;
+        } catch (err) {
+          console.warn(`Wheel reminder failed for ${user.id}:`, err.message);
+        }
+      }
+
+      if (userChanged) changed = true;
+      await new Promise(r => setTimeout(r, 120));
+    }
+
+    if (changed) writeJSON('users.json', users);
+  } finally {
+    notificationProcessing = false;
+  }
+}
+
+function startNotificationScheduler() {
+  setInterval(() => {
+    processScheduledNotifications().catch(err => {
+      console.warn('Notification scheduler:', err.message);
+    });
+  }, NOTIFICATION_CHECK_MS);
+
+  setTimeout(() => {
+    processScheduledNotifications().catch(err => {
+      console.warn('Notification scheduler (initial):', err.message);
+    });
+  }, 30000);
+
+  console.log(`🔔 Планировщик уведомлений: каждые ${NOTIFICATION_CHECK_MS / 60000} мин, окно 12:00–21:00 (${NOTIFICATION_TZ})`);
+}
+
 function migrateUsersBalance() {
   const users = readJSON('users.json');
   if (!Array.isArray(users)) return;
@@ -187,11 +437,16 @@ function ensureUserRecord(userId, profile = {}) {
       firstName: profile.firstName || '',
       lastName: profile.lastName || '',
       firstSeen: new Date().toISOString(),
+      lastActive: new Date().toISOString(),
       balance: 0,
       referrerId: null,
       pendingPromoDiscount: 0,
       pendingFreeOrder: false,
-      lastSpinDate: null
+      lastSpinDate: null,
+      cart: [],
+      cartUpdatedAt: null,
+      cartRemindersSent: 0,
+      lastWheelNotifyDate: null
     };
     users.push(user);
     writeJSON('users.json', users);
@@ -427,6 +682,8 @@ function persistOrder(order) {
     if (prod) prod.sales = (prod.sales || 0) + (item.qty || 1);
   });
   writeJSON('products.json', products);
+
+  if (order.userId) clearUserCart(order.userId);
 }
 
 function notifyAdminsNewOrder(order) {
@@ -773,11 +1030,12 @@ app.get('/api/users/me', (req, res) => {
     return res.status(401).json({ error: 'Unauthorized' });
   }
   const tgUser = getTelegramUserFromInitData(initData);
-  const user = ensureUserRecord(verifiedUserId, {
+  const profile = {
     username: tgUser.username || '',
     firstName: tgUser.first_name || '',
     lastName: tgUser.last_name || ''
-  });
+  };
+  const user = touchUserActivity(verifiedUserId, profile);
   res.json({
     id: user.id,
     username: user.username,
@@ -785,10 +1043,26 @@ app.get('/api/users/me', (req, res) => {
     lastName: user.lastName,
     balance: user.balance,
     firstSeen: user.firstSeen,
+    lastActive: user.lastActive || null,
     pendingPromoDiscount: user.pendingPromoDiscount || 0,
     pendingFreeOrder: !!user.pendingFreeOrder,
     referralCount: countReferrals(verifiedUserId)
   });
+});
+
+app.post('/api/cart/sync', (req, res) => {
+  const initData = req.headers['x-telegram-init-data'];
+  const verifiedUserId = getVerifiedTelegramUserId(initData);
+  if (!verifiedUserId) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  const tgUser = getTelegramUserFromInitData(initData);
+  syncUserCart(verifiedUserId, req.body?.items, {
+    username: tgUser.username || '',
+    firstName: tgUser.first_name || '',
+    lastName: tgUser.last_name || ''
+  });
+  res.json({ ok: true });
 });
 
 app.get('/api/referrals/my', (req, res) => {
@@ -1377,6 +1651,7 @@ const startupProducts = (() => {
 console.log(`📦 Товаров в каталоге: ${startupProducts.length}`);
 
 initBot();
+startNotificationScheduler();
 
 app.listen(PORT, () => {
   console.log(`🚀 Red Shop сервер запущен на порту ${PORT}`);
