@@ -11,9 +11,18 @@
   <script>
     (function () {
       try {
-        var theme = localStorage.getItem('redshop_theme') || 'red';
-        document.documentElement.setAttribute('data-theme-init', theme);
-      } catch (e) {}
+        var appearance = localStorage.getItem('redshop_appearance') || 'dark';
+        var accent = localStorage.getItem('redshop_accent');
+        if (!accent) {
+          var legacy = localStorage.getItem('redshop_theme') || 'red';
+          accent = legacy === 'purple' ? 'pink' : legacy;
+        }
+        if (['red', 'blue', 'gold', 'green', 'pink'].indexOf(accent) < 0) accent = 'red';
+        if (['dark', 'light'].indexOf(appearance) < 0) appearance = 'dark';
+        document.documentElement.setAttribute('data-accent', accent);
+      } catch (e) {
+        document.documentElement.setAttribute('data-accent', 'red');
+      }
     })();
   </script>
 </head>
@@ -21,10 +30,19 @@
 <script>
   (function () {
     try {
-      var theme = localStorage.getItem('redshop_theme') || 'red';
-      document.body.setAttribute('data-theme', theme);
+      var appearance = localStorage.getItem('redshop_appearance') || 'dark';
+      var accent = localStorage.getItem('redshop_accent');
+      if (!accent) {
+        var legacy = localStorage.getItem('redshop_theme') || 'red';
+        accent = legacy === 'purple' ? 'pink' : legacy;
+      }
+      if (['red', 'blue', 'gold', 'green', 'pink'].indexOf(accent) < 0) accent = 'red';
+      if (['dark', 'light'].indexOf(appearance) < 0) appearance = 'dark';
+      document.documentElement.setAttribute('data-accent', accent);
+      document.body.setAttribute('data-appearance', appearance);
     } catch (e) {
-      document.body.setAttribute('data-theme', 'red');
+      document.documentElement.setAttribute('data-accent', 'red');
+      document.body.setAttribute('data-appearance', 'dark');
     }
   })();
 </script>
@@ -277,8 +295,17 @@
       <button type="button" class="catalog-back-btn" onclick="closeThemesScreen()">← Назад</button>
       <h2 class="order-history-title">Оформление интерфейса</h2>
     </div>
-    <p class="referral-desc">Выберите цветовую тему. Все темы тёмные и комфортные для глаз.</p>
-    <div id="themesGrid" class="themes-grid"></div>
+
+    <section class="themes-section">
+      <h3 class="themes-section-title">Базовая тема</h3>
+      <div id="appearanceGrid" class="themes-grid"></div>
+    </section>
+
+    <section class="themes-section">
+      <h3 class="themes-section-title">Остальные цвета</h3>
+      <p class="referral-desc">Акцент применяется ко всем кнопкам, фильтрам и элементам интерфейса.</p>
+      <div id="accentsGrid" class="accents-list"></div>
+    </section>
   </div>
 </div>
 

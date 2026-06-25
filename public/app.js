@@ -39,7 +39,8 @@ const state = {
   referralLink: '',
   promoDiscount: 0,
   pendingFreeOrder: false,
-  currentTheme: 'red',
+  currentAppearance: 'dark',
+  currentAccent: 'red',
   banner: null
 };
 
@@ -50,16 +51,24 @@ const DEFAULT_BANNER = {
   buttonText: 'Крутить колесо'
 };
 
-const APP_THEMES = {
-  red: { name: 'Красная', preview: '#e31e24' },
-  blue: { name: 'Синяя', preview: '#2563eb' },
-  green: { name: 'Зелёная', preview: '#16a34a' },
-  purple: { name: 'Фиолетовая', preview: '#9333ea' }
+const APPEARANCE_MODES = {
+  dark: { name: 'Тёмная', desc: 'Чёрный фон и белый текст' },
+  light: { name: 'Светлая', desc: 'Светлый фон и тёмный текст' }
 };
 
+const ACCENT_COLORS = {
+  red: { name: 'Красный', desc: 'Фирменный акцент Red Shop', preview: '#e31e24' },
+  blue: { name: 'Синий', desc: 'Холодный неоновый синий', preview: '#2563eb' },
+  gold: { name: 'Obsidian Gold', desc: 'Глубокий золотой блеск', preview: '#c9a227' },
+  green: { name: 'Toxic Mint', desc: 'Яркий мятный неон', preview: '#2dd4a0' },
+  pink: { name: 'Cyber Pink', desc: 'Неоновый розовый акцент', preview: '#ff2d87' }
+};
+
+const APPEARANCE_STORAGE_KEY = 'redshop_appearance';
+const ACCENT_STORAGE_KEY = 'redshop_accent';
+const LEGACY_THEME_KEY = 'redshop_theme';
 const AGE_GATE_SKIP_KEY = 'redshop_age_skip';
 const LAST_WIN_KEY = 'redshop_last_win';
-const THEME_STORAGE_KEY = 'redshop_theme';
 
 // ─── API ─────────────────────────────────────────────────────────────────────
 const API = '/api';
@@ -143,48 +152,93 @@ document.addEventListener('DOMContentLoaded', async () => {
   initAdminCheck();
 });
 
-function initTheme() {
-  let theme = 'red';
+function loadThemeSettings() {
+  let appearance = 'dark';
+  let accent = 'red';
   try {
-    theme = localStorage.getItem(THEME_STORAGE_KEY) || 'red';
-    if (!APP_THEMES[theme]) theme = 'red';
+    appearance = localStorage.getItem(APPEARANCE_STORAGE_KEY) || 'dark';
+    accent = localStorage.getItem(ACCENT_STORAGE_KEY);
+    if (!accent) {
+      const legacy = localStorage.getItem(LEGACY_THEME_KEY);
+      if (legacy === 'purple') accent = 'pink';
+      else if (legacy && ACCENT_COLORS[legacy]) accent = legacy;
+      else accent = 'red';
+    }
+    if (!APPEARANCE_MODES[appearance]) appearance = 'dark';
+    if (!ACCENT_COLORS[accent]) accent = 'red';
   } catch {}
-  applyTheme(theme, false);
+  return { appearance, accent };
 }
 
-function applyTheme(themeId, save = true) {
-  if (!APP_THEMES[themeId]) themeId = 'red';
-  state.currentTheme = themeId;
-  document.body.setAttribute('data-theme', themeId);
+function initTheme() {
+  const { appearance, accent } = loadThemeSettings();
+  applyThemeSettings(appearance, accent, false);
+}
+
+function applyThemeSettings(appearance, accent, save = true) {
+  if (!APPEARANCE_MODES[appearance]) appearance = 'dark';
+  if (!ACCENT_COLORS[accent]) accent = 'red';
+  state.currentAppearance = appearance;
+  state.currentAccent = accent;
+  document.documentElement.setAttribute('data-accent', accent);
+  document.body.setAttribute('data-appearance', appearance);
+  document.body.removeAttribute('data-theme');
   if (save) {
-    try { localStorage.setItem(THEME_STORAGE_KEY, themeId); } catch {}
+    try {
+      localStorage.setItem(APPEARANCE_STORAGE_KEY, appearance);
+      localStorage.setItem(ACCENT_STORAGE_KEY, accent);
+    } catch {}
   }
   if (tg?.setHeaderColor) {
-    const headerColors = { red: '#140808', blue: '#080818', green: '#081008', purple: '#100610' };
-    const c = headerColors[themeId] || '#140808';
+    const c = appearance === 'light' ? '#f4f4f5' : '#0a0a0a';
     try { tg.setHeaderColor(c); tg.setBackgroundColor(c); } catch {}
   }
   renderThemeOptions();
+  if (document.getElementById('wheelCanvas')) {
+    requestAnimationFrame(() => drawWheel(state.wheelRotation));
+  }
 }
 
 function renderThemeOptions() {
-  const grid = document.getElementById('themesGrid');
-  if (!grid) return;
-  grid.innerHTML = Object.entries(APP_THEMES).map(([id, theme]) => {
-    const active = state.currentTheme === id;
+  const appearanceGrid = document.getElementById('appearanceGrid');
+  const accentsGrid = document.getElementById('accentsGrid');
+  if (!appearanceGrid || !accentsGrid) return;
+
+  appearanceGrid.innerHTML = Object.entries(APPEARANCE_MODES).map(([id, mode]) => {
+    const active = state.currentAppearance === id;
     return `
-      <button type="button" class="theme-card${active ? ' active' : ''}" onclick="selectTheme('${id}')">
-        <span class="theme-preview" style="background:${theme.preview}"></span>
-        <span class="theme-card-name">${theme.name}</span>
-        <span class="theme-card-check">${active ? '✓ Выбрано' : ''}</span>
+      <button type="button" class="appearance-card${active ? ' active' : ''}" onclick="selectAppearance('${id}')">
+        <span class="appearance-preview appearance-preview-${id}" aria-hidden="true"></span>
+        <span class="appearance-card-name">${mode.name}</span>
+        <span class="appearance-card-desc">${mode.desc}</span>
+        <span class="appearance-card-check">${active ? '✓ Выбрано' : ''}</span>
+      </button>
+    `;
+  }).join('');
+
+  accentsGrid.innerHTML = Object.entries(ACCENT_COLORS).map(([id, accent]) => {
+    const active = state.currentAccent === id;
+    return `
+      <button type="button" class="accent-card${active ? ' active' : ''}" onclick="selectAccent('${id}')">
+        <span class="accent-preview" style="background:${accent.preview}" aria-hidden="true"></span>
+        <span class="accent-card-info">
+          <span class="accent-card-name">${accent.name}</span>
+          <span class="accent-card-desc">${accent.desc}</span>
+        </span>
+        <span class="accent-card-check">${active ? '✓' : ''}</span>
       </button>
     `;
   }).join('');
 }
 
-function selectTheme(themeId) {
-  applyTheme(themeId, true);
-  showToast(`Тема «${APP_THEMES[themeId]?.name || themeId}» применена`, 'success');
+function selectAppearance(appearanceId) {
+  applyThemeSettings(appearanceId, state.currentAccent, true);
+  showToast(`Тема «${APPEARANCE_MODES[appearanceId]?.name || appearanceId}» применена`, 'success');
+}
+
+function selectAccent(accentId) {
+  applyThemeSettings(state.currentAppearance, accentId, true);
+  showToast(`Акцент «${ACCENT_COLORS[accentId]?.name || accentId}» применён`, 'success');
 }
 
 function openThemesScreen() {
@@ -1321,13 +1375,6 @@ function openBotChat() {
 // WHEEL OF FORTUNE (server-side)
 // ═══════════════════════════════════════════════════════════════
 
-const WHEEL_SEGMENTS = [
-  { label: '50', prize: 50, fill: '#e31e24', fillLight: '#ff4548' },
-  { label: '100', prize: 100, fill: '#1a1a1a', fillLight: '#2e2e2e' },
-  { label: '300', prize: 300, fill: '#e31e24', fillLight: '#ff4548' },
-  { label: '500', prize: 500, fill: '#1a1a1a', fillLight: '#2e2e2e' }
-];
-
 const WHEEL_PRIZE_CHANCES = [
   { prize: 50, chance: 60 },
   { prize: 100, chance: 25 },
@@ -1336,6 +1383,44 @@ const WHEEL_PRIZE_CHANCES = [
 ];
 
 const WHEEL_LOGICAL_SIZE = 320;
+
+function getCssVar(name, fallback = '') {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
+}
+
+function hexToRgb(hex) {
+  const h = (hex || '').replace('#', '');
+  if (h.length !== 6) return { r: 227, g: 30, b: 36 };
+  return {
+    r: parseInt(h.slice(0, 2), 16),
+    g: parseInt(h.slice(2, 4), 16),
+    b: parseInt(h.slice(4, 6), 16)
+  };
+}
+
+function accentRgba(alpha, gi = 1) {
+  const { r, g, b } = hexToRgb(getCssVar('--accent', '#e31e24'));
+  return `rgba(${r},${g},${b},${alpha * gi})`;
+}
+
+function getWheelSegments() {
+  const fill = getCssVar('--accent', '#e31e24');
+  const fillLight = getCssVar('--accent-light', '#ff4d52');
+  const dark = getCssVar('--wheel-sector-dark', '#1a1a1a');
+  const darkLight = getCssVar('--wheel-sector-dark-light', '#2e2e2e');
+  return [
+    { label: '50', prize: 50, fill, fillLight },
+    { label: '100', prize: 100, fill: dark, fillLight: darkLight },
+    { label: '300', prize: 300, fill, fillLight },
+    { label: '500', prize: 500, fill: dark, fillLight: darkLight }
+  ];
+}
+
+function getAccentSparkleColors() {
+  const accent = getCssVar('--accent', '#e31e24');
+  const accentLight = getCssVar('--accent-light', '#ff4d52');
+  return [accent, accentLight, '#ffffff', '#ffd700'];
+}
 
 function setupWheelCanvas(canvas) {
   if (!canvas || canvas.dataset.dprReady) return;
@@ -1510,9 +1595,9 @@ function drawWheel(rotation, glowIntensity = 1) {
   ctx.clearRect(0, 0, W, H);
 
   const halo = ctx.createRadialGradient(cx, cy, R, cx, cy, R + 14);
-  halo.addColorStop(0, 'rgba(227,30,36,0)');
-  halo.addColorStop(0.85, `rgba(227,30,36,${0.08 * gi})`);
-  halo.addColorStop(1, `rgba(227,30,36,${0.18 * gi})`);
+  halo.addColorStop(0, accentRgba(0));
+  halo.addColorStop(0.85, accentRgba(0.08, gi));
+  halo.addColorStop(1, accentRgba(0.18, gi));
   ctx.beginPath();
   ctx.arc(cx, cy, R + 14, 0, 2 * Math.PI);
   ctx.fillStyle = halo;
@@ -1522,10 +1607,11 @@ function drawWheel(rotation, glowIntensity = 1) {
   ctx.translate(cx, cy);
   ctx.rotate(rotation);
 
-  const sectorAngle = (Math.PI * 2) / WHEEL_SEGMENTS.length;
+  const sectorAngle = (Math.PI * 2) / 4;
   let startAngle = -Math.PI / 2;
+  const wheelSegments = getWheelSegments();
 
-  WHEEL_SEGMENTS.forEach(seg => {
+  wheelSegments.forEach(seg => {
     const midAngle = startAngle + sectorAngle / 2;
     const gx = Math.cos(midAngle) * R * 0.55;
     const gy = Math.sin(midAngle) * R * 0.55;
@@ -1566,18 +1652,18 @@ function drawWheel(rotation, glowIntensity = 1) {
 
   ctx.restore();
 
-  ctx.shadowColor = `rgba(227,30,36,${0.4 * gi})`;
+  ctx.shadowColor = accentRgba(0.4, gi);
   ctx.shadowBlur = 12 * gi;
   ctx.beginPath();
   ctx.arc(cx, cy, R, 0, 2 * Math.PI);
-  ctx.strokeStyle = 'rgba(227,30,36,0.95)';
+  ctx.strokeStyle = accentRgba(0.95);
   ctx.lineWidth = 2;
   ctx.stroke();
   ctx.shadowBlur = 0;
 
   ctx.beginPath();
   ctx.arc(cx, cy, R + 2, 0, 2 * Math.PI);
-  ctx.strokeStyle = 'rgba(227,30,36,0.2)';
+  ctx.strokeStyle = accentRgba(0.2);
   ctx.lineWidth = 1;
   ctx.stroke();
 
@@ -1602,14 +1688,17 @@ function drawWheel(rotation, glowIntensity = 1) {
 
   ctx.beginPath();
   ctx.arc(cx, cy, 30, 0, 2 * Math.PI);
-  ctx.strokeStyle = 'rgba(227,30,36,0.45)';
+  ctx.strokeStyle = accentRgba(0.45);
   ctx.lineWidth = 1.5;
   ctx.stroke();
 
+  const hubAccent = getCssVar('--accent', '#e31e24');
+  const hubAccentLight = getCssVar('--accent-light', '#ff4d52');
+  const hubAccentDeep = getCssVar('--accent-deep', '#8f1418');
   const hubInner = ctx.createRadialGradient(cx - 3, cy - 4, 1, cx, cy, 16);
-  hubInner.addColorStop(0, '#ff5558');
-  hubInner.addColorStop(0.45, '#e31e24');
-  hubInner.addColorStop(1, '#8f1418');
+  hubInner.addColorStop(0, hubAccentLight);
+  hubInner.addColorStop(0.45, hubAccent);
+  hubInner.addColorStop(1, hubAccentDeep);
   ctx.beginPath();
   ctx.arc(cx, cy, 16, 0, 2 * Math.PI);
   ctx.fillStyle = hubInner;
@@ -1731,7 +1820,7 @@ function launchSparkles(container) {
   const sparkleEl = container.querySelector('.spin-sparkles');
   if (!sparkleEl) return;
   sparkleEl.innerHTML = '';
-  const colors = ['#e31e24', '#ff4444', '#ffd700', '#ffffff', '#ff8800'];
+  const colors = getAccentSparkleColors();
   for (let i = 0; i < 20; i++) {
     const s = document.createElement('div');
     s.className = 'sparkle';
@@ -1755,7 +1844,7 @@ function launchSparkles(container) {
 function launchConfetti() {
   const container = document.getElementById('bonusView');
   if (!container) return;
-  const colors = ['#e31e24', '#ff4444', '#ffd700', '#ffffff', '#ff8800'];
+  const colors = getAccentSparkleColors();
   for (let i = 0; i < 40; i++) {
     const piece = document.createElement('div');
     piece.className = 'confetti-piece';
