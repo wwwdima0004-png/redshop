@@ -24,8 +24,23 @@ const DATA_DIR = path.join(__dirname, 'data');
 
 function readJSON(file) {
   const fp = path.join(DATA_DIR, file);
-  if (!fs.existsSync(fp)) return file.endsWith('messages.json') ? {} : [];
-  try { return JSON.parse(fs.readFileSync(fp, 'utf8')); } catch { return file.endsWith('messages.json') ? {} : []; }
+  const isMessages = file.endsWith('messages.json');
+  const isBanner = file.endsWith('banner.json');
+  if (!fs.existsSync(fp)) return isMessages ? {} : [];
+  try {
+    const parsed = JSON.parse(fs.readFileSync(fp, 'utf8'));
+    if (isMessages) {
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    }
+    if (isBanner) {
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+    }
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    if (isMessages) return {};
+    if (isBanner) return null;
+    return [];
+  }
 }
 
 function writeJSON(file, data) {
@@ -50,9 +65,17 @@ function ensureDataFiles() {
   }
   if (needsDefault) writeJSON('products.json', defaultProducts());
 
-  if (!fs.existsSync(path.join(DATA_DIR, 'categories.json'))) {
-    writeJSON('categories.json', defaultCategories());
+  const categoriesPath = path.join(DATA_DIR, 'categories.json');
+  let needsDefaultCategories = false;
+  if (!fs.existsSync(categoriesPath)) {
+    needsDefaultCategories = true;
+  } else {
+    try {
+      const parsed = JSON.parse(fs.readFileSync(categoriesPath, 'utf8'));
+      if (!Array.isArray(parsed) || parsed.length === 0) needsDefaultCategories = true;
+    } catch { needsDefaultCategories = true; }
   }
+  if (needsDefaultCategories) writeJSON('categories.json', defaultCategories());
 
   migrateProductsCategory();
 
@@ -78,7 +101,7 @@ function defaultBanner() {
 
 function readBanner() {
   const banner = readJSON('banner.json');
-  if (!banner || typeof banner !== 'object') return defaultBanner();
+  if (!banner || typeof banner !== 'object' || Array.isArray(banner)) return defaultBanner();
   const defaults = defaultBanner();
   return {
     tag: String(banner.tag || defaults.tag).trim().slice(0, 120) || defaults.tag,
@@ -265,6 +288,174 @@ function migrateProductsCategory() {
     }
   });
   if (changed) writeJSON('products.json', products);
+}
+
+function validateOrderItems(rawItems) {
+  if (!Array.isArray(rawItems) || rawItems.length === 0) {
+    return { error: 'Корзина пуста', status: 400 };
+  }
+
+  const products = readJSON('products.json');
+  const categories = readJSON('categories.json');
+  const items = [];
+  let total = 0;
+
+  for (const raw of rawItems) {
+    const id = parseInt(raw.id, 10);
+    const qty = Math.round(Number(raw.qty) || 0);
+    if (!Number.isFinite(id) || id <= 0) {
+      return { error: 'Неверный товар в заказе', status: 400 };
+    }
+    if (qty <= 0) {
+      return { error: 'Количество должно быть больше 0', status: 400 };
+    }
+
+    const product = products.find(p => Number(p.id) === id);
+    if (!product) {
+      return { error: `Товар #${id} не найден`, status: 400 };
+    }
+
+    const price = Number(product.price) || 0;
+    const category = categories.find(c => Number(c.id) === Number(product.categoryId));
+    items.push({
+      id: product.id,
+      name: product.name,
+      description: product.description || product.name,
+      categoryId: product.categoryId,
+      categoryName: category ? category.name : '',
+      price,
+      qty
+    });
+    total += price * qty;
+  }
+
+  return { items, total };
+}
+
+function applyServerOrderPayment(userId, total, wantsUseBalance) {
+  let promoDiscountUsed = 0;
+  let freeOrderApplied = false;
+
+  if (userId) {
+    const users = readJSON('users.json');
+    const user = users.find(u => Number(u.id) === Number(userId));
+    if (user) {
+      let userChanged = false;
+      if (user.pendingFreeOrder) {
+        freeOrderApplied = true;
+        user.pendingFreeOrder = false;
+        userChanged = true;
+      }
+      if (user.pendingPromoDiscount > 0) {
+        promoDiscountUsed = user.pendingPromoDiscount;
+        user.pendingPromoDiscount = 0;
+        userChanged = true;
+      }
+      if (userChanged) writeJSON('users.json', users);
+    }
+  }
+
+  const discount = freeOrderApplied ? total : Math.min(total, promoDiscountUsed);
+  const afterDiscount = Math.max(0, total - discount);
+
+  let balanceUsed = 0;
+  if (userId && wantsUseBalance && afterDiscount > 0) {
+    const users = readJSON('users.json');
+    const user = users.find(u => Number(u.id) === Number(userId));
+    const currentBalance = user && typeof user.balance === 'number' ? user.balance : 0;
+    balanceUsed = Math.min(afterDiscount, currentBalance);
+    if (balanceUsed > 0) addBalance(userId, -balanceUsed);
+  }
+
+  const finalTotal = Math.max(0, afterDiscount - balanceUsed);
+  return { discount, promoDiscountUsed, freeOrderApplied, balanceUsed, finalTotal };
+}
+
+function buildValidatedOrder(orderInput) {
+  const {
+    items: rawItems,
+    userId = null,
+    userName = 'Аноним',
+    username = '',
+    phone = '',
+    address = '',
+    comment = '',
+    categoryName = '',
+    categoryId = null,
+    useBalance = 0
+  } = orderInput;
+
+  const validation = validateOrderItems(rawItems);
+  if (validation.error) return validation;
+
+  const wantsUseBalance = userId && Math.max(0, Math.round(Number(useBalance) || 0)) > 0;
+  const payment = applyServerOrderPayment(userId, validation.total, wantsUseBalance);
+
+  const order = {
+    id: Date.now(),
+    userId,
+    userName,
+    username,
+    phone: phone || '',
+    address: address || '',
+    comment: comment || '',
+    categoryName: categoryName || (validation.items.length === 1 ? validation.items[0].categoryName : ''),
+    categoryId: categoryId || (validation.items.length === 1 ? validation.items[0].categoryId : null),
+    items: validation.items,
+    total: validation.total,
+    discount: payment.discount,
+    wheelDiscount: 0,
+    promoDiscountUsed: payment.promoDiscountUsed,
+    freeOrderApplied: payment.freeOrderApplied,
+    balanceUsed: payment.balanceUsed,
+    finalTotal: payment.finalTotal,
+    status: 'new',
+    createdAt: new Date().toISOString()
+  };
+
+  return { order };
+}
+
+function persistOrder(order) {
+  const orders = readJSON('orders.json');
+  orders.push(order);
+  writeJSON('orders.json', orders);
+
+  const products = readJSON('products.json');
+  (order.items || []).forEach(item => {
+    const prod = products.find(p => Number(p.id) === Number(item.id));
+    if (prod) prod.sales = (prod.sales || 0) + (item.qty || 1);
+  });
+  writeJSON('products.json', products);
+}
+
+function notifyAdminsNewOrder(order) {
+  if (!bot) return;
+  const itemLines = (order.items || []).map(i => {
+    const pos = i.categoryName || order.categoryName || '';
+    const flavor = i.description || i.name;
+    return pos ? `• ${pos} — ${flavor} ×${i.qty || 1}` : `• ${flavor} ×${i.qty || 1}`;
+  }).join('\n');
+  let text = `🆕 *Новый заказ #${order.id}*\n` +
+    `👤 ${order.userName || 'Аноним'}${order.username ? ` (@${order.username})` : ''}\n\n` +
+    `📦 ${itemLines}\n`;
+  if (order.phone) text += `\n📞 ${order.phone}`;
+  if (order.address) text += `\n📍 ${order.address}`;
+  if (order.comment) text += `\n💬 ${order.comment}`;
+  text += `\n\n💰 Сумма: ${order.total} сом\n`;
+  if (order.discount) text += `🎁 Скидка: −${order.discount} сом\n`;
+  if (order.promoDiscountUsed) text += `🏷️ Промо-скидка: −${order.promoDiscountUsed} сом\n`;
+  if (order.freeOrderApplied) text += `🎁 Бесплатный заказ (промокод)\n`;
+  if (order.balanceUsed) text += `💳 С баланса: −${order.balanceUsed} сом\n`;
+  text += `✅ Итого: *${order.finalTotal} сом*`;
+  ADMIN_IDS.forEach(id => bot.sendMessage(id, text, { parse_mode: 'Markdown' }).catch(() => {}));
+}
+
+function getUserBalance(userId) {
+  if (!userId) return null;
+  const users = readJSON('users.json');
+  const u = users.find(x => Number(x.id) === Number(userId));
+  return u && typeof u.balance === 'number' ? u.balance : null;
 }
 
 function defaultProducts() {
@@ -792,7 +983,11 @@ app.post('/api/roulette/spin', (req, res) => {
 app.post('/api/orders', (req, res) => {
   const initData = req.headers['x-telegram-init-data'];
   const verifiedUserId = getVerifiedTelegramUserId(initData);
-  const body = { ...req.body };
+  const body = req.body || {};
+
+  let userId = null;
+  let userName = body.userName || 'Аноним';
+  let username = body.username || '';
 
   if (verifiedUserId) {
     const tgUser = getTelegramUserFromInitData(initData);
@@ -801,116 +996,37 @@ app.post('/api/orders', (req, res) => {
       firstName: tgUser.first_name || '',
       lastName: tgUser.last_name || ''
     });
-    body.userId = verifiedUserId;
-    if (!body.userName) {
-      body.userName = `${tgUser.first_name || ''} ${tgUser.last_name || ''}`.trim() || tgUser.username || String(verifiedUserId);
-    }
-    if (!body.username) body.username = tgUser.username || '';
+    userId = verifiedUserId;
+    userName = `${tgUser.first_name || ''} ${tgUser.last_name || ''}`.trim() || tgUser.username || String(verifiedUserId);
+    username = tgUser.username || '';
   }
 
-  const items = Array.isArray(body.items) ? body.items : [];
-  const computedTotal = items.reduce((s, i) => s + (Number(i.price) || 0) * (Number(i.qty) || 1), 0);
-  const total = computedTotal > 0 ? computedTotal : Math.max(0, Number(body.total) || 0);
-  let promoDiscountUsed = 0;
-  let freeOrderApplied = false;
-  if (verifiedUserId) {
-    const users = readJSON('users.json');
-    const user = users.find(u => Number(u.id) === Number(verifiedUserId));
-    if (user) {
-      let userChanged = false;
-      if (user.pendingFreeOrder) {
-        freeOrderApplied = true;
-        user.pendingFreeOrder = false;
-        userChanged = true;
-      }
-      if (user.pendingPromoDiscount > 0) {
-        promoDiscountUsed = user.pendingPromoDiscount;
-        user.pendingPromoDiscount = 0;
-        userChanged = true;
-      }
-      if (userChanged) writeJSON('users.json', users);
-    }
-  }
-
-  const totalDiscount = freeOrderApplied
-    ? total
-    : Math.min(total, promoDiscountUsed);
-  const discount = totalDiscount;
-  const afterDiscount = Math.max(0, total - discount);
-
-  let balanceUsed = 0;
-  const useBalanceRequested = Math.max(0, Math.round(Number(body.useBalance) || 0));
-
-  if (verifiedUserId && useBalanceRequested > 0) {
-    const users = readJSON('users.json');
-    const user = users.find(u => Number(u.id) === Number(verifiedUserId));
-    const currentBalance = user && typeof user.balance === 'number' ? user.balance : 0;
-    balanceUsed = Math.min(useBalanceRequested, afterDiscount, currentBalance);
-    if (balanceUsed > 0) addBalance(verifiedUserId, -balanceUsed);
-  }
-
-  const finalTotal = Math.max(0, afterDiscount - balanceUsed);
-  delete body.useBalance;
-
-  const orders = readJSON('orders.json');
-  const order = {
-    id: Date.now(),
-    ...body,
-    total,
-    discount,
-    wheelDiscount: 0,
-    promoDiscountUsed,
-    freeOrderApplied,
-    balanceUsed,
-    finalTotal,
-    status: 'new',
-    createdAt: new Date().toISOString()
-  };
-  orders.push(order);
-  writeJSON('orders.json', orders);
-
-  // Update product sales
-  const products = readJSON('products.json');
-  (order.items || []).forEach(item => {
-    const prod = products.find(p => p.id === item.id);
-    if (prod) prod.sales = (prod.sales || 0) + (item.qty || 1);
+  const result = buildValidatedOrder({
+    items: body.items,
+    userId,
+    userName,
+    username,
+    phone: body.phone,
+    address: body.address,
+    comment: body.comment,
+    categoryName: body.categoryName,
+    categoryId: body.categoryId,
+    useBalance: body.useBalance
   });
-  writeJSON('products.json', products);
 
-  // Notify admins via bot
-  if (bot) {
-    const itemLines = (order.items || []).map(i => {
-      const pos = i.categoryName || order.categoryName || '';
-      const flavor = i.description || i.name;
-      return pos ? `• ${pos} — ${flavor} ×${i.qty || 1}` : `• ${flavor} ×${i.qty || 1}`;
-    }).join('\n');
-    let text = `🆕 *Новый заказ #${order.id}*\n` +
-      `👤 ${order.userName || 'Аноним'}${order.username ? ` (@${order.username})` : ''}\n\n` +
-      `📦 ${itemLines}\n`;
-    if (order.phone) text += `\n📞 ${order.phone}`;
-    if (order.address) text += `\n📍 ${order.address}`;
-    if (order.comment) text += `\n💬 ${order.comment}`;
-    text += `\n\n💰 Сумма: ${order.total || order.finalTotal} сом\n`;
-    if (order.discount) text += `🎁 Скидка: −${order.discount} сом\n`;
-    if (order.promoDiscountUsed) text += `🏷️ Промо-скидка: −${order.promoDiscountUsed} сом\n`;
-    if (order.freeOrderApplied) text += `🎁 Бесплатный заказ (промокод)\n`;
-    if (order.balanceUsed) text += `💳 С баланса: −${order.balanceUsed} сом\n`;
-    text += `✅ Итого: *${order.finalTotal} сом*`;
-    ADMIN_IDS.forEach(id => bot.sendMessage(id, text, { parse_mode: 'Markdown' }).catch(() => {}));
+  if (result.error) {
+    return res.status(result.status || 400).json({ error: result.error });
   }
+
+  const { order } = result;
+  persistOrder(order);
+  notifyAdminsNewOrder(order);
 
   if (bot && order.userId) {
     sendWelcomeMessage(order.userId).catch(() => {});
   }
 
-  let newBalance = null;
-  if (verifiedUserId) {
-    const users = readJSON('users.json');
-    const u = users.find(x => Number(x.id) === Number(verifiedUserId));
-    if (u) newBalance = u.balance;
-  }
-
-  res.json({ ...order, newBalance });
+  res.json({ ...order, newBalance: getUserBalance(userId) });
 });
 
 app.put('/api/orders/:id/status', requireAdmin, (req, res) => {
@@ -1153,44 +1269,43 @@ async function initBot(retryCount = 0) {
       if (msg.web_app_data) {
         try {
           const orderData = JSON.parse(msg.web_app_data.data);
-          const orders = readJSON('orders.json');
-          const order = {
-            id: Date.now(),
+          ensureUserRecord(userId, {
+            username: user.username || '',
+            firstName: user.first_name || '',
+            lastName: user.last_name || ''
+          });
+
+          const result = buildValidatedOrder({
+            items: orderData.items,
             userId,
             userName: `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.username || String(userId),
             username: user.username || '',
-            ...orderData,
-            status: 'new',
-            createdAt: new Date().toISOString()
-          };
-          orders.push(order);
-          writeJSON('orders.json', orders);
-
-          // Update sales
-          const products = readJSON('products.json');
-          (order.items || []).forEach(item => {
-            const prod = products.find(p => p.id === item.id);
-            if (prod) prod.sales = (prod.sales || 0) + (item.qty || 1);
+            phone: orderData.phone,
+            address: orderData.address,
+            comment: orderData.comment,
+            categoryName: orderData.categoryName,
+            categoryId: orderData.categoryId,
+            useBalance: orderData.useBalance
           });
-          writeJSON('products.json', products);
 
-          bot.sendMessage(chatId,
-            `✅ *Заказ #${order.id} принят!*\n\n` +
-            `📦 ${(order.items || []).map(i => `${i.name} ×${i.qty} — ${i.price * i.qty} сом`).join('\n')}\n` +
-            (order.discount ? `🎁 Скидка: −${order.discount} сом\n` : '') +
-            `\n💰 Итого: *${order.finalTotal} сом*\n\nМы свяжемся с вами в ближайшее время!`,
-            { parse_mode: 'Markdown' }
-          );
+          if (result.error) {
+            bot.sendMessage(chatId, `❌ ${result.error}`).catch(() => {});
+            return;
+          }
 
-          // Notify admins
-          const adminText = `🆕 *Новый заказ #${order.id}*\n` +
-            `👤 ${order.userName}${order.username ? ` (@${order.username})` : ''}\n\n` +
-            `📦 Состав:\n${(order.items || []).map(i => `• ${i.name} ×${i.qty} — ${i.price * i.qty} сом`).join('\n')}\n\n` +
-            (order.discount ? `🎁 Скидка: −${order.discount} сом\n` : '') +
-            `💰 Итого: *${order.finalTotal} сом*`;
-          ADMIN_IDS.forEach(id => bot.sendMessage(id, adminText, { parse_mode: 'Markdown' }).catch(() => {}));
+          const { order } = result;
+          persistOrder(order);
+          notifyAdminsNewOrder(order);
+
+          let customerText = `✅ *Заказ #${order.id} принят!*\n\n` +
+            `📦 ${(order.items || []).map(i => `${i.description || i.name} ×${i.qty} — ${i.price * i.qty} сом`).join('\n')}\n`;
+          if (order.discount) customerText += `🎁 Скидка: −${order.discount} сом\n`;
+          if (order.balanceUsed) customerText += `💳 С баланса: −${order.balanceUsed} сом\n`;
+          customerText += `\n💰 Итого: *${order.finalTotal} сом*\n\nМы свяжемся с вами в ближайшее время!`;
+          bot.sendMessage(chatId, customerText, { parse_mode: 'Markdown' }).catch(() => {});
         } catch (e) {
           console.error('Ошибка обработки заказа:', e);
+          bot.sendMessage(chatId, '❌ Не удалось оформить заказ. Попробуйте снова.').catch(() => {});
         }
         return;
       }
