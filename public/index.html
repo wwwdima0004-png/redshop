@@ -86,11 +86,12 @@
   </header>
 
   <!-- Promo banner -->
-  <section class="catalog-promo">
-    <div class="catalog-promo-tag">🔥 НИЗКИЕ ЦЕНЫ, УЖЕ СЕГОДНЯ</div>
-    <h2 class="catalog-promo-title">График с 13:00 до 00:00</h2>
-    <p class="catalog-promo-sub">Поступление уже в боте!!!</p>
-    <button type="button" class="catalog-promo-btn" onclick="switchMainTab('bonus')">Крутить колесо</button>
+  <section class="catalog-promo" id="catalogPromo">
+    <div class="catalog-promo-glow" aria-hidden="true"></div>
+    <div class="catalog-promo-tag"><span class="catalog-promo-fire" aria-hidden="true">🔥</span> <span id="bannerTag">НИЗКИЕ ЦЕНЫ, УЖЕ СЕГОДНЯ</span></div>
+    <h2 class="catalog-promo-title" id="bannerTitle">График с 13:00 до 00:00</h2>
+    <p class="catalog-promo-sub" id="bannerSubtitle">Поступление уже в боте!!!</p>
+    <button type="button" class="catalog-promo-btn" id="bannerBtn" onclick="switchMainTab('bonus')">Крутить колесо</button>
   </section>
 
   <section class="catalog-section">
@@ -476,6 +477,9 @@
     <button class="admin-nav-btn" data-tab="stats" onclick="switchAdminTab('stats')">
       <span>📊</span><span>Статистика</span>
     </button>
+    <button class="admin-nav-btn" data-tab="banner" onclick="switchAdminTab('banner')">
+      <span>🎯</span><span>Баннер</span>
+    </button>
     <button class="admin-nav-btn" data-tab="promocodes" onclick="switchAdminTab('promocodes')">
       <span>🏷️</span><span>Промокоды</span>
     </button>
@@ -658,6 +662,35 @@
       <h4 class="section-title" style="margin-top:24px">Топ товаров</h4>
       <div id="statsTopProducts" class="top-products-list"></div>
       <button class="btn-outline btn-full" style="margin-top:16px" onclick="loadStats()">🔄 Обновить</button>
+    </div>
+  </div>
+
+  <!-- ── TAB: Banner ── -->
+  <div id="tab-banner" class="admin-tab hidden">
+    <div class="tab-content">
+      <h3 class="tab-title">Баннер каталога</h3>
+      <div class="card">
+        <p class="admin-hint">Тексты промо-баннера на главной вкладке «Каталог».</p>
+        <form id="bannerForm" onsubmit="saveBannerSettings(event)">
+          <div class="form-group">
+            <label>Метка (верхняя строка)</label>
+            <input type="text" id="adminBannerTag" class="form-input" placeholder="НИЗКИЕ ЦЕНЫ, УЖЕ СЕГОДНЯ" maxlength="120" required>
+          </div>
+          <div class="form-group">
+            <label>Заголовок</label>
+            <input type="text" id="adminBannerTitle" class="form-input" placeholder="График с 13:00 до 00:00" maxlength="200" required>
+          </div>
+          <div class="form-group">
+            <label>Подзаголовок</label>
+            <input type="text" id="adminBannerSubtitle" class="form-input" placeholder="Поступление уже в боте!!!" maxlength="200" required>
+          </div>
+          <div class="form-group">
+            <label>Текст кнопки</label>
+            <input type="text" id="adminBannerButton" class="form-input" placeholder="Крутить колесо" maxlength="60" required>
+          </div>
+          <button type="submit" class="btn-primary" id="saveBannerBtn">Сохранить</button>
+        </form>
+      </div>
     </div>
   </div>
 

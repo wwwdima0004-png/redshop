@@ -64,6 +64,28 @@ function ensureDataFiles() {
   migrateUsersReferrer();
 
   if (!fs.existsSync(path.join(DATA_DIR, 'promocodes.json'))) writeJSON('promocodes.json', []);
+  if (!fs.existsSync(path.join(DATA_DIR, 'banner.json'))) writeJSON('banner.json', defaultBanner());
+}
+
+function defaultBanner() {
+  return {
+    tag: 'НИЗКИЕ ЦЕНЫ, УЖЕ СЕГОДНЯ',
+    title: 'График с 13:00 до 00:00',
+    subtitle: 'Поступление уже в боте!!!',
+    buttonText: 'Крутить колесо'
+  };
+}
+
+function readBanner() {
+  const banner = readJSON('banner.json');
+  if (!banner || typeof banner !== 'object') return defaultBanner();
+  const defaults = defaultBanner();
+  return {
+    tag: String(banner.tag || defaults.tag).trim().slice(0, 120) || defaults.tag,
+    title: String(banner.title || defaults.title).trim().slice(0, 200) || defaults.title,
+    subtitle: String(banner.subtitle || defaults.subtitle).trim().slice(0, 200) || defaults.subtitle,
+    buttonText: String(banner.buttonText || defaults.buttonText).trim().slice(0, 60) || defaults.buttonText
+  };
 }
 
 const REFERRAL_BONUS = 30;
@@ -397,6 +419,27 @@ app.post('/api/check-admin', (req, res) => {
     } catch {}
   }
   res.json({ isAdmin: false });
+});
+
+app.get('/api/banner', (req, res) => {
+  res.json(readBanner());
+});
+
+app.put('/api/banner', requireAdmin, (req, res) => {
+  const current = readBanner();
+  const body = req.body || {};
+  const banner = {
+    tag: body.tag !== undefined ? String(body.tag).trim().slice(0, 120) : current.tag,
+    title: body.title !== undefined ? String(body.title).trim().slice(0, 200) : current.title,
+    subtitle: body.subtitle !== undefined ? String(body.subtitle).trim().slice(0, 200) : current.subtitle,
+    buttonText: body.buttonText !== undefined ? String(body.buttonText).trim().slice(0, 60) : current.buttonText
+  };
+  if (!banner.tag) banner.tag = defaultBanner().tag;
+  if (!banner.title) banner.title = defaultBanner().title;
+  if (!banner.subtitle) banner.subtitle = defaultBanner().subtitle;
+  if (!banner.buttonText) banner.buttonText = defaultBanner().buttonText;
+  writeJSON('banner.json', banner);
+  res.json(banner);
 });
 
 // Categories (public read)

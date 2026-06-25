@@ -39,7 +39,15 @@ const state = {
   referralLink: '',
   promoDiscount: 0,
   pendingFreeOrder: false,
-  currentTheme: 'red'
+  currentTheme: 'red',
+  banner: null
+};
+
+const DEFAULT_BANNER = {
+  tag: 'НИЗКИЕ ЦЕНЫ, УЖЕ СЕГОДНЯ',
+  title: 'График с 13:00 до 00:00',
+  subtitle: 'Поступление уже в боте!!!',
+  buttonText: 'Крутить колесо'
 };
 
 const APP_THEMES = {
@@ -128,7 +136,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   initTheme();
   initAgeGate();
   switchMainTab('catalog');
-  await initShop();
+  await Promise.all([initShop(), loadBanner()]);
   refreshUserBalance();
   renderProfile();
   initAdminCheck();
@@ -681,6 +689,28 @@ function closeOrderHistory() {
 // ═══════════════════════════════════════════════════════════════
 // SHOP
 // ═══════════════════════════════════════════════════════════════
+
+async function loadBanner() {
+  try {
+    const data = await api('GET', '/banner');
+    state.banner = data;
+  } catch {
+    state.banner = { ...DEFAULT_BANNER };
+  }
+  renderCatalogBanner();
+}
+
+function renderCatalogBanner() {
+  const b = state.banner || DEFAULT_BANNER;
+  const tagEl = document.getElementById('bannerTag');
+  const titleEl = document.getElementById('bannerTitle');
+  const subEl = document.getElementById('bannerSubtitle');
+  const btnEl = document.getElementById('bannerBtn');
+  if (tagEl) tagEl.textContent = b.tag || DEFAULT_BANNER.tag;
+  if (titleEl) titleEl.textContent = b.title || DEFAULT_BANNER.title;
+  if (subEl) subEl.textContent = b.subtitle || DEFAULT_BANNER.subtitle;
+  if (btnEl) btnEl.textContent = b.buttonText || DEFAULT_BANNER.buttonText;
+}
 
 function getCategoryName(categoryId) {
   const cat = state.categories.find(c => c.id === categoryId);
@@ -1729,6 +1759,42 @@ function switchAdminTab(tab) {
   else if (tab === 'messages') loadMessages();
   else if (tab === 'stats') loadStats();
   else if (tab === 'promocodes') loadAdminPromocodes();
+  else if (tab === 'banner') loadAdminBanner();
+}
+
+async function loadAdminBanner() {
+  try {
+    const data = await api('GET', '/banner');
+    state.banner = data;
+    document.getElementById('adminBannerTag').value = data.tag || '';
+    document.getElementById('adminBannerTitle').value = data.title || '';
+    document.getElementById('adminBannerSubtitle').value = data.subtitle || '';
+    document.getElementById('adminBannerButton').value = data.buttonText || '';
+  } catch {
+    showToast('Не удалось загрузить баннер', 'error');
+  }
+}
+
+async function saveBannerSettings(e) {
+  e.preventDefault();
+  const btn = document.getElementById('saveBannerBtn');
+  const payload = {
+    tag: document.getElementById('adminBannerTag').value.trim(),
+    title: document.getElementById('adminBannerTitle').value.trim(),
+    subtitle: document.getElementById('adminBannerSubtitle').value.trim(),
+    buttonText: document.getElementById('adminBannerButton').value.trim()
+  };
+  if (btn) { btn.disabled = true; btn.textContent = 'Сохранение...'; }
+  try {
+    const data = await api('PUT', '/banner', payload, true);
+    state.banner = data;
+    renderCatalogBanner();
+    showToast('Баннер сохранён ✓', 'success');
+  } catch (err) {
+    showToast('Ошибка: ' + (err.message || 'не удалось сохранить'), 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Сохранить'; }
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════
