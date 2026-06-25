@@ -268,7 +268,8 @@ body {
 }
 
 .bonus-wheel-area {
-  margin-bottom: 20px;
+  margin-bottom: 24px;
+  padding-top: 8px;
 }
 
 .bonus-wheel-wrapper {
@@ -277,22 +278,65 @@ body {
   margin: 0 auto;
 }
 
+#bonusView .wheel-pointer-wrap {
+  position: absolute;
+  top: -6px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  filter: drop-shadow(0 3px 8px rgba(227, 30, 36, 0.45));
+}
+
+#bonusView .wheel-pointer-triangle {
+  width: 0;
+  height: 0;
+  border-left: 11px solid transparent;
+  border-right: 11px solid transparent;
+  border-top: 18px solid #e31e24;
+  animation: pointerBob 1.4s ease-in-out infinite;
+}
+
+#bonusView #wheelCanvas {
+  border-radius: 50%;
+  border: none;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.45);
+  display: block;
+}
+
+#bonusView #wheelCanvas.spinning {
+  box-shadow:
+    0 4px 24px rgba(0, 0, 0, 0.45),
+    0 0 28px rgba(227, 30, 36, 0.35);
+}
+
+#bonusView .wheel-win-glow {
+  background: radial-gradient(circle, rgba(227, 30, 36, 0.2) 0%, rgba(227, 30, 36, 0.08) 50%, transparent 70%);
+}
+
 .bonus-actions {
   max-width: 300px;
-  margin: 0 auto 16px;
+  margin: 0 auto 20px;
+  padding: 0 4px;
 }
 
 .bonus-screen .btn-spin {
   width: 100%;
-  border-radius: 14px;
-  padding: 14px;
-  font-size: 15px;
+  border-radius: 16px;
+  padding: 16px 20px;
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  box-shadow: 0 6px 22px rgba(227, 30, 36, 0.4);
+}
+
+.bonus-screen .btn-spin:not(:disabled):hover {
+  box-shadow: 0 8px 26px rgba(227, 30, 36, 0.5);
 }
 
 .bonus-screen .spin-cooldown {
-  margin-top: 12px;
-  padding: 14px 16px;
-  border-radius: 14px;
+  margin-top: 14px;
+  padding: 16px 18px;
+  border-radius: 16px;
   background: #111;
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
@@ -313,39 +357,41 @@ body {
   align-items: center;
   gap: 14px;
   max-width: 300px;
-  margin: 4px auto 0;
-  padding: 16px 18px;
+  margin: 8px auto 0;
+  padding: 18px 20px;
   text-align: left;
-  background: #111;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 16px;
+  background: linear-gradient(145deg, #111 0%, #0a0a0a 100%);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 18px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
 }
 
 .bonus-last-win-icon {
-  width: 44px;
-  height: 44px;
-  border-radius: 12px;
-  background: rgba(227, 30, 36, 0.12);
-  border: 1px solid rgba(227, 30, 36, 0.25);
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  background: rgba(227, 30, 36, 0.1);
+  border: 1px solid rgba(227, 30, 36, 0.22);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 22px;
+  font-size: 24px;
   flex-shrink: 0;
 }
 
 .bonus-last-win-label {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--grey);
-  margin-bottom: 4px;
+  margin-bottom: 5px;
   font-weight: 500;
 }
 
 .bonus-last-win-amount {
-  font-size: 20px;
+  font-size: 22px;
   font-weight: 800;
   color: #4ade80;
   line-height: 1.2;
+  letter-spacing: -0.02em;
 }
 
 .spin-cooldown-label {

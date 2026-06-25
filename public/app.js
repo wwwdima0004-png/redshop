@@ -1322,10 +1322,10 @@ function openBotChat() {
 // ═══════════════════════════════════════════════════════════════
 
 const WHEEL_SEGMENTS = [
-  { label: '50', prize: 50, c0: '#3a1010', c1: '#6b1818', c2: '#a82020', c3: '#e31e24', neon: '#e31e24' },
-  { label: '100', prize: 100, c0: '#1a1028', c1: '#2a1840', c2: '#3d2560', c3: '#5a3880', neon: '#9b59b6' },
-  { label: '300', prize: 300, c0: '#1a1808', c1: '#3d3010', c2: '#6b5018', c3: '#a07820', neon: '#d4a017' },
-  { label: '500', prize: 500, c0: '#1a1a1a', c1: '#2d2d2d', c2: '#4a4a4a', c3: '#ffffff', neon: '#ffd700', textDark: true }
+  { label: '50', prize: 50, fill: '#e31e24', fillLight: '#ff4548' },
+  { label: '100', prize: 100, fill: '#1a1a1a', fillLight: '#2e2e2e' },
+  { label: '300', prize: 300, fill: '#e31e24', fillLight: '#ff4548' },
+  { label: '500', prize: 500, fill: '#1a1a1a', fillLight: '#2e2e2e' }
 ];
 
 function formatCountdown(ms) {
@@ -1447,17 +1447,17 @@ function drawWheel(rotation, glowIntensity = 1) {
   const H = canvas.height;
   const cx = W / 2;
   const cy = H / 2;
-  const R = Math.min(cx, cy) - 14;
-  const gi = Math.max(0.3, glowIntensity);
+  const R = Math.min(cx, cy) - 16;
+  const gi = Math.max(0.25, glowIntensity);
 
   ctx.clearRect(0, 0, W, H);
 
-  const halo = ctx.createRadialGradient(cx, cy, R - 4, cx, cy, R + 18);
+  const halo = ctx.createRadialGradient(cx, cy, R, cx, cy, R + 14);
   halo.addColorStop(0, 'rgba(227,30,36,0)');
-  halo.addColorStop(0.7, `rgba(227,30,36,${0.12 * gi})`);
-  halo.addColorStop(1, `rgba(227,30,36,${0.25 * gi})`);
+  halo.addColorStop(0.85, `rgba(227,30,36,${0.08 * gi})`);
+  halo.addColorStop(1, `rgba(227,30,36,${0.18 * gi})`);
   ctx.beginPath();
-  ctx.arc(cx, cy, R + 18, 0, 2 * Math.PI);
+  ctx.arc(cx, cy, R + 14, 0, 2 * Math.PI);
   ctx.fillStyle = halo;
   ctx.fill();
 
@@ -1470,15 +1470,11 @@ function drawWheel(rotation, glowIntensity = 1) {
 
   WHEEL_SEGMENTS.forEach(seg => {
     const midAngle = startAngle + sectorAngle / 2;
-    const gx1 = Math.cos(midAngle) * R * 0.1;
-    const gy1 = Math.sin(midAngle) * R * 0.1;
-    const gx2 = Math.cos(midAngle) * R;
-    const gy2 = Math.sin(midAngle) * R;
-    const grad = ctx.createLinearGradient(gx1, gy1, gx2, gy2);
-    grad.addColorStop(0, seg.c0);
-    grad.addColorStop(0.35, seg.c1);
-    grad.addColorStop(0.7, seg.c2);
-    grad.addColorStop(1, seg.c3);
+    const gx = Math.cos(midAngle) * R * 0.55;
+    const gy = Math.sin(midAngle) * R * 0.55;
+    const grad = ctx.createRadialGradient(0, 0, R * 0.08, gx, gy, R);
+    grad.addColorStop(0, seg.fillLight);
+    grad.addColorStop(1, seg.fill);
 
     ctx.beginPath();
     ctx.moveTo(0, 0);
@@ -1487,29 +1483,30 @@ function drawWheel(rotation, glowIntensity = 1) {
     ctx.fillStyle = grad;
     ctx.fill();
 
-    ctx.strokeStyle = 'rgba(0,0,0,0.85)';
-    ctx.lineWidth = 2.5;
+    ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+    ctx.lineWidth = 2;
     ctx.stroke();
 
-    const tr = R * 0.62;
+    const tr = R * 0.58;
     const tx = Math.cos(midAngle) * tr;
     const ty = Math.sin(midAngle) * tr;
-    const textCol = seg.textDark ? '#1a1a1a' : '#ffffff';
 
     ctx.save();
     ctx.translate(tx, ty);
     ctx.rotate(midAngle + Math.PI / 2);
-    ctx.shadowColor = seg.neon;
-    ctx.shadowBlur = 10;
-    ctx.fillStyle = textCol;
-    ctx.font = '900 26px Inter, Arial, sans-serif';
+    ctx.shadowColor = 'rgba(0,0,0,0.55)';
+    ctx.shadowBlur = 5;
+    ctx.shadowOffsetY = 1;
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '800 30px Inter, Arial, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(seg.label, 0, -6);
-    ctx.shadowBlur = 4;
-    ctx.font = '700 11px Inter, Arial, sans-serif';
-    ctx.fillStyle = seg.textDark ? 'rgba(0,0,0,0.65)' : 'rgba(255,255,255,0.85)';
-    ctx.fillText('сом', 0, 12);
+    ctx.fillText(seg.label, 0, -9);
+    ctx.shadowBlur = 3;
+    ctx.shadowOffsetY = 0;
+    ctx.font = '600 12px Inter, Arial, sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.92)';
+    ctx.fillText('сом', 0, 15);
     ctx.restore();
 
     startAngle += sectorAngle;
@@ -1517,29 +1514,58 @@ function drawWheel(rotation, glowIntensity = 1) {
 
   ctx.restore();
 
-  ctx.shadowColor = '#e31e24';
-  ctx.shadowBlur = 14 * gi;
+  ctx.shadowColor = `rgba(227,30,36,${0.4 * gi})`;
+  ctx.shadowBlur = 12 * gi;
   ctx.beginPath();
   ctx.arc(cx, cy, R, 0, 2 * Math.PI);
-  ctx.strokeStyle = '#e31e24';
-  ctx.lineWidth = 4;
+  ctx.strokeStyle = 'rgba(227,30,36,0.95)';
+  ctx.lineWidth = 2;
   ctx.stroke();
   ctx.shadowBlur = 0;
 
   ctx.beginPath();
-  ctx.arc(cx, cy, 28, 0, 2 * Math.PI);
-  ctx.fillStyle = '#0a0a0a';
-  ctx.fill();
-  ctx.strokeStyle = '#e31e24';
-  ctx.lineWidth = 3;
+  ctx.arc(cx, cy, R + 2, 0, 2 * Math.PI);
+  ctx.strokeStyle = 'rgba(227,30,36,0.2)';
+  ctx.lineWidth = 1;
   ctx.stroke();
 
-  const hub = ctx.createRadialGradient(cx - 5, cy - 5, 2, cx, cy, 24);
-  hub.addColorStop(0, '#e31e24');
-  hub.addColorStop(1, '#5a0a0a');
+  ctx.save();
+  ctx.shadowColor = 'rgba(0,0,0,0.55)';
+  ctx.shadowBlur = 10;
+  ctx.shadowOffsetY = 3;
   ctx.beginPath();
-  ctx.arc(cx, cy, 22, 0, 2 * Math.PI);
-  ctx.fillStyle = hub;
+  ctx.arc(cx, cy, 34, 0, 2 * Math.PI);
+  ctx.fillStyle = '#0d0d0d';
+  ctx.fill();
+  ctx.restore();
+
+  const hubOuter = ctx.createRadialGradient(cx - 5, cy - 6, 2, cx, cy, 30);
+  hubOuter.addColorStop(0, '#3d3d3d');
+  hubOuter.addColorStop(0.55, '#222');
+  hubOuter.addColorStop(1, '#111');
+  ctx.beginPath();
+  ctx.arc(cx, cy, 30, 0, 2 * Math.PI);
+  ctx.fillStyle = hubOuter;
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.arc(cx, cy, 30, 0, 2 * Math.PI);
+  ctx.strokeStyle = 'rgba(227,30,36,0.45)';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  const hubInner = ctx.createRadialGradient(cx - 3, cy - 4, 1, cx, cy, 16);
+  hubInner.addColorStop(0, '#ff5558');
+  hubInner.addColorStop(0.45, '#e31e24');
+  hubInner.addColorStop(1, '#8f1418');
+  ctx.beginPath();
+  ctx.arc(cx, cy, 16, 0, 2 * Math.PI);
+  ctx.fillStyle = hubInner;
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.arc(cx - 4, cy - 5, 4, 0, 2 * Math.PI);
+  ctx.fillStyle = 'rgba(255,255,255,0.18)';
   ctx.fill();
 }
 
@@ -1549,12 +1575,12 @@ function animateWheelToSector(sectorIndex, prize, onComplete) {
   const finalRad = -(extraSpins * 360 + targetDeg) * Math.PI / 180;
   const startRot = state.wheelRotation;
   const startTime = performance.now();
-  const duration = 4800;
+  const duration = 5200;
   const canvas = document.getElementById('wheelCanvas');
   if (canvas) canvas.classList.add('spinning');
 
   function easeOut(t) {
-    return 1 - Math.pow(1 - t, 5);
+    return 1 - Math.pow(1 - t, 4);
   }
 
   function animate(now) {
