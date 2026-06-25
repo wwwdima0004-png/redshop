@@ -68,6 +68,31 @@ function ensureDataFiles() {
 
 const REFERRAL_BONUS = 30;
 const BOT_USERNAME = 'Red1shopbot';
+const ROULETTE_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+const ROULETTE_SECTORS = [50, 100, 300, 500];
+
+function getRouletteStatus(user) {
+  if (!user || !user.lastSpinDate) {
+    return { canSpin: true, remainingMs: 0 };
+  }
+  const last = new Date(user.lastSpinDate).getTime();
+  if (!Number.isFinite(last)) {
+    return { canSpin: true, remainingMs: 0 };
+  }
+  const elapsed = Date.now() - last;
+  if (elapsed >= ROULETTE_COOLDOWN_MS) {
+    return { canSpin: true, remainingMs: 0 };
+  }
+  return { canSpin: false, remainingMs: ROULETTE_COOLDOWN_MS - elapsed };
+}
+
+function pickRoulettePrize() {
+  const r = Math.random() * 100;
+  if (r < 60) return { prize: 50, sectorIndex: 0 };
+  if (r < 85) return { prize: 100, sectorIndex: 1 };
+  if (r < 95) return { prize: 300, sectorIndex: 2 };
+  return { prize: 500, sectorIndex: 3 };
+}
 
 function migrateUsersReferrer() {
   const users = readJSON('users.json');
@@ -84,6 +109,10 @@ function migrateUsersReferrer() {
     }
     if (u.pendingFreeOrder === undefined) {
       u.pendingFreeOrder = false;
+      changed = true;
+    }
+    if (u.lastSpinDate === undefined) {
+      u.lastSpinDate = null;
       changed = true;
     }
   });
@@ -116,7 +145,8 @@ function ensureUserRecord(userId, profile = {}) {
       balance: 0,
       referrerId: null,
       pendingPromoDiscount: 0,
-      pendingFreeOrder: false
+      pendingFreeOrder: false,
+      lastSpinDate: null
     };
     users.push(user);
     writeJSON('users.json', users);
@@ -654,6 +684,68 @@ app.delete('/api/promocodes/:code', requireAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
+app.get('/api/roulette/status', (req, res) => {
+  const initData = req.headers['x-telegram-init-data'];
+  const verifiedUserId = getVerifiedTelegramUserId(initData);
+  if (!verifiedUserId) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  const tgUser = getTelegramUserFromInitData(initData);
+  const user = ensureUserRecord(verifiedUserId, {
+    username: tgUser.username || '',
+    firstName: tgUser.first_name || '',
+    lastName: tgUser.last_name || ''
+  });
+  const status = getRouletteStatus(user);
+  res.json({
+    canSpin: status.canSpin,
+    remainingMs: status.remainingMs,
+    lastSpinDate: user.lastSpinDate || null
+  });
+});
+
+app.post('/api/roulette/spin', (req, res) => {
+  const initData = req.headers['x-telegram-init-data'];
+  const verifiedUserId = getVerifiedTelegramUserId(initData);
+  if (!verifiedUserId) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  const tgUser = getTelegramUserFromInitData(initData);
+  ensureUserRecord(verifiedUserId, {
+    username: tgUser.username || '',
+    firstName: tgUser.first_name || '',
+    lastName: tgUser.last_name || ''
+  });
+
+  const users = readJSON('users.json');
+  const user = users.find(u => Number(u.id) === Number(verifiedUserId));
+  if (!user) {
+    return res.status(404).json({ error: 'Пользователь не найден' });
+  }
+
+  const status = getRouletteStatus(user);
+  if (!status.canSpin) {
+    return res.status(429).json({
+      error: 'Крутить можно только раз в 24 часа',
+      canSpin: false,
+      remainingMs: status.remainingMs
+    });
+  }
+
+  const { prize, sectorIndex } = pickRoulettePrize();
+  user.lastSpinDate = new Date().toISOString();
+  writeJSON('users.json', users);
+  const balance = addBalance(verifiedUserId, prize);
+
+  res.json({
+    prize,
+    sectorIndex,
+    balance,
+    canSpin: false,
+    remainingMs: ROULETTE_COOLDOWN_MS
+  });
+});
+
 app.post('/api/orders', (req, res) => {
   const initData = req.headers['x-telegram-init-data'];
   const verifiedUserId = getVerifiedTelegramUserId(initData);
@@ -676,8 +768,6 @@ app.post('/api/orders', (req, res) => {
   const items = Array.isArray(body.items) ? body.items : [];
   const computedTotal = items.reduce((s, i) => s + (Number(i.price) || 0) * (Number(i.qty) || 1), 0);
   const total = computedTotal > 0 ? computedTotal : Math.max(0, Number(body.total) || 0);
-  const wheelDiscount = Math.min(Math.max(0, Math.round(Number(body.discount) || 0)), total);
-
   let promoDiscountUsed = 0;
   let freeOrderApplied = false;
   if (verifiedUserId) {
@@ -701,7 +791,7 @@ app.post('/api/orders', (req, res) => {
 
   const totalDiscount = freeOrderApplied
     ? total
-    : Math.min(total, wheelDiscount + promoDiscountUsed);
+    : Math.min(total, promoDiscountUsed);
   const discount = totalDiscount;
   const afterDiscount = Math.max(0, total - discount);
 
@@ -725,7 +815,7 @@ app.post('/api/orders', (req, res) => {
     ...body,
     total,
     discount,
-    wheelDiscount,
+    wheelDiscount: 0,
     promoDiscountUsed,
     freeOrderApplied,
     balanceUsed,

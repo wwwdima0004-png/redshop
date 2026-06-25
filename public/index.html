@@ -31,8 +31,36 @@
 
 <!-- ═══════════════════ TAB: BONUSES ═══════════════════ -->
 <div id="bonusView" class="main-tab-view hidden">
-  <div class="stub-screen">
-    <h1 class="stub-title">Бонусы</h1>
+  <div class="bonus-screen">
+    <header class="bonus-header">
+      <h1 class="bonus-title">Колесо Фортуны</h1>
+      <p class="bonus-subtitle">Крутите раз в 24 часа и получайте приз</p>
+    </header>
+
+    <div class="wheel-wrapper bonus-wheel-wrapper">
+      <div class="wheel-pointer-wrap">
+        <div class="wheel-pointer-arrow">▼</div>
+      </div>
+      <canvas id="wheelCanvas" width="320" height="320"></canvas>
+      <div class="wheel-win-glow" id="wheelWinGlow"></div>
+    </div>
+
+    <div id="spinResultBox" class="spin-result hidden">
+      <div class="spin-result-inner">
+        <div id="spinResultIcon" class="spin-result-emoji">🎉</div>
+        <div id="spinResultText" class="spin-result-amount"></div>
+        <div id="spinResultSub" class="spin-result-sub"></div>
+      </div>
+      <div class="spin-sparkles" id="spinSparkles"></div>
+    </div>
+
+    <button id="spinBtn" class="btn-primary btn-full btn-spin" onclick="spinWheel()">
+      Крутить
+    </button>
+    <div id="spinCooldown" class="spin-cooldown hidden">
+      <p class="spin-cooldown-label">Следующая прокрутка через:</p>
+      <p id="spinCooldownTimer" class="spin-cooldown-timer">00:00:00</p>
+    </div>
   </div>
 </div>
 
@@ -57,22 +85,16 @@
     </div>
   </header>
 
-  <!-- Roulette banner -->
-  <div class="roulette-banner" onclick="openRoulette()">
+  <!-- Wheel of Fortune banner -->
+  <div class="roulette-banner" onclick="switchMainTab('bonus')">
     <div class="roulette-banner-content">
-      <span class="roulette-icon">🏷️</span>
+      <span class="roulette-icon">🎡</span>
       <div>
-        <div class="roulette-banner-title">Получить скидку</div>
-        <div class="roulette-banner-sub">Выиграй скидку до 150 сом • 1 раз в день</div>
+        <div class="roulette-banner-title">Колесо Фортуны</div>
+        <div class="roulette-banner-sub">Выиграй до 500 сом на баланс • раз в 24 часа</div>
       </div>
     </div>
     <span class="arrow-right">›</span>
-  </div>
-
-  <!-- Discount banner (hidden by default) -->
-  <div id="discountBanner" class="discount-banner hidden">
-    <span>🎁 Активна скидка: <strong id="discountBannerAmount">0</strong> сом</span>
-    <button class="btn-remove-discount" onclick="removeDiscount()">✕</button>
   </div>
 
   <!-- Catalog -->
@@ -138,15 +160,6 @@
       <div class="profile-stat-card">
         <div class="profile-stat-value" id="profileReferralsCount">0</div>
         <div class="profile-stat-label">Рефералов приглашено</div>
-      </div>
-    </div>
-
-    <div id="profileDiscountCard" class="profile-discount-card hidden">
-      <div class="profile-discount-icon" aria-hidden="true">🎰</div>
-      <div class="profile-discount-info">
-        <div class="profile-discount-title">Скидка из колеса</div>
-        <div class="profile-discount-amount"><span id="profileDiscountAmount">0</span> сом</div>
-        <div class="profile-discount-note">Действует 24 часа</div>
       </div>
     </div>
 
@@ -341,49 +354,6 @@
       <button class="btn-primary btn-full" onclick="checkout()" id="checkoutBtn" disabled>
         Оформить заказ
       </button>
-    </div>
-  </div>
-</div>
-
-<!-- Roulette Modal -->
-<div id="rouletteModal" class="modal-overlay hidden" onclick="closeOnOverlay(event, 'rouletteModal')">
-  <div class="modal modal-roulette">
-    <div class="modal-header">
-      <h2>🎰 Рулетка скидок</h2>
-      <button class="btn-close" onclick="closeModal('rouletteModal')">✕</button>
-    </div>
-    <div class="modal-body roulette-body">
-      <p class="roulette-desc">Крутите рулетку раз в день и получите скидку на заказ!</p>
-
-      <div class="wheel-wrapper">
-        <div class="wheel-pointer-wrap">
-          <div class="wheel-pointer-arrow">▼</div>
-        </div>
-        <canvas id="wheelCanvas" width="300" height="300"></canvas>
-        <div class="wheel-win-glow" id="wheelWinGlow"></div>
-      </div>
-
-      <div class="roulette-legend">
-        <div class="legend-item"><span class="legend-dot" style="background:#e31e24"></span>50 сом — 75%</div>
-        <div class="legend-item"><span class="legend-dot" style="background:#8b0000"></span>100 сом — 15%</div>
-        <div class="legend-item"><span class="legend-dot" style="background:#f0f0f0;border:1px solid #444"></span>150 сом — 10%</div>
-      </div>
-
-      <div id="spinResultBox" class="spin-result hidden">
-        <div class="spin-result-inner">
-          <div id="spinResultIcon" class="spin-result-emoji">🎉</div>
-          <div id="spinResultText" class="spin-result-amount"></div>
-          <div id="spinResultSub" class="spin-result-sub"></div>
-        </div>
-        <div class="spin-sparkles" id="spinSparkles"></div>
-      </div>
-
-      <button id="spinBtn" class="btn-primary btn-full btn-spin" onclick="spinWheel()">
-        🎰 Крутить!
-      </button>
-      <div id="spinCooldown" class="spin-cooldown hidden">
-        ⏳ Следующий спин доступен завтра
-      </div>
     </div>
   </div>
 </div>

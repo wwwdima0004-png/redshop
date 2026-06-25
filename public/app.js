@@ -17,7 +17,6 @@ const state = {
   categories: [],
   selectedCategoryId: null,
   cart: [],        // [{id, name, price, photo, qty}]
-  discount: 0,
   adminPassword: null,       // legacy (kept for backward compat)
   telegramInitData: null,    // Telegram initData string (cryptographic)
   adminUserId: null,         // verified admin Telegram user ID
@@ -27,6 +26,8 @@ const state = {
   ordersFilter: 'all',
   wheelRotation: 0,
   spinning: false,
+  rouletteRemainingMs: 0,
+  rouletteTimerInterval: null,
   buyProductId: null,
   currentMainTab: 'catalog',
   myOrdersCount: null,
@@ -127,8 +128,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   initAgeGate();
   switchMainTab('catalog');
   await initShop();
-  checkSpinStatus();
-  checkExistingDiscount();
   refreshUserBalance();
   renderProfile();
   initAdminCheck();
@@ -238,6 +237,9 @@ function switchMainTab(tab, options = {}) {
   if (tab === 'profile') {
     if (options.resetProfileSub !== false) closeProfileSubscreens(true);
     renderProfile();
+  } else if (tab === 'bonus') {
+    closeProfileSubscreens(false);
+    initBonusWheel();
   } else {
     closeProfileSubscreens(false);
   }
@@ -277,17 +279,6 @@ const ORDER_STATUS_LABELS = {
 
 function getTelegramUser() {
   return tg?.initDataUnsafe?.user || null;
-}
-
-function getActiveWheelDiscount() {
-  const saved = localStorage.getItem('redshop_discount');
-  const lastSpin = localStorage.getItem('redshop_lastSpin');
-  const today = new Date().toDateString();
-  if (saved && lastSpin === today) {
-    const amount = parseInt(saved, 10);
-    return Number.isFinite(amount) && amount > 0 ? amount : 0;
-  }
-  return state.discount > 0 ? state.discount : 0;
 }
 
 function onProfileAvatarError() {
@@ -342,19 +333,6 @@ function renderProfile() {
 
   const referralsEl = document.getElementById('profileReferralsCount');
   if (referralsEl) referralsEl.textContent = String(state.referralCount ?? 0);
-
-  const discountCard = document.getElementById('profileDiscountCard');
-  const discountAmountEl = document.getElementById('profileDiscountAmount');
-  const activeDiscount = getActiveWheelDiscount();
-
-  if (discountCard && discountAmountEl) {
-    if (activeDiscount > 0) {
-      discountAmountEl.textContent = activeDiscount;
-      discountCard.classList.remove('hidden');
-    } else {
-      discountCard.classList.add('hidden');
-    }
-  }
 }
 
 function profileMenuStub(section) {
@@ -548,19 +526,11 @@ async function refreshUserBalance() {
   } catch {}
 }
 
-function getCombinedDiscount(subtotal) {
-  if (state.pendingFreeOrder) return subtotal;
-  const wheel = Math.min(state.discount || 0, subtotal);
-  const promo = Math.min(state.promoDiscount || 0, Math.max(0, subtotal - wheel));
-  return wheel + promo;
-}
-
-function calcOrderPayment(subtotal, wheelDiscount = null, useBalance = false) {
+function calcOrderPayment(subtotal, useBalance = false) {
   if (state.pendingFreeOrder) {
     return {
       subtotal,
       discount: subtotal,
-      wheelDiscount: state.discount || 0,
       promoDiscount: state.promoDiscount || 0,
       afterDiscount: 0,
       balanceUsed: 0,
@@ -568,15 +538,13 @@ function calcOrderPayment(subtotal, wheelDiscount = null, useBalance = false) {
       freeOrder: true
     };
   }
-  const wheel = wheelDiscount !== null ? wheelDiscount : (state.discount || 0);
-  const promo = state.promoDiscount || 0;
-  const disc = Math.min(subtotal, wheel + promo);
-  const afterDiscount = Math.max(0, subtotal - disc);
+  const promo = Math.min(state.promoDiscount || 0, subtotal);
+  const afterDiscount = Math.max(0, subtotal - promo);
   const balanceUsed = useBalance && state.userBalance > 0
     ? Math.min(state.userBalance, afterDiscount)
     : 0;
   const finalTotal = Math.max(0, afterDiscount - balanceUsed);
-  return { subtotal, discount: disc, wheelDiscount: wheel, promoDiscount: promo, afterDiscount, balanceUsed, finalTotal, freeOrder: false };
+  return { subtotal, discount: promo, promoDiscount: promo, afterDiscount, balanceUsed, finalTotal, freeOrder: false };
 }
 
 function onBalanceToggleChange(context) {
@@ -590,7 +558,7 @@ function onBalanceToggleChange(context) {
 }
 
 function updateBalanceToggleUI(context, subtotal) {
-  const payment = calcOrderPayment(subtotal, null, false);
+  const payment = calcOrderPayment(subtotal, false);
   const canUse = state.userBalance > 0 && payment.afterDiscount > 0 && getTelegramInitData() && !state.pendingFreeOrder;
 
   if (context === 'cart') {
@@ -620,14 +588,13 @@ function updateBuyOrderTotals() {
   const product = state.products.find(p => p.id === state.buyProductId);
   if (!product) return;
   const subtotal = product.price;
-  const payment = calcOrderPayment(subtotal, null, state.buyUseBalance);
+  const payment = calcOrderPayment(subtotal, state.buyUseBalance);
   const totalsEl = document.getElementById('buyOrderTotals');
   if (!totalsEl) return;
 
   totalsEl.innerHTML = `
     <div class="buy-total-row"><span>Сумма:</span><span>${payment.subtotal} сом</span></div>
     ${payment.freeOrder ? `<div class="buy-total-row discount"><span>🎁 Бесплатный заказ</span><span>−${payment.subtotal} сом</span></div>` : ''}
-    ${!payment.freeOrder && payment.wheelDiscount > 0 ? `<div class="buy-total-row discount"><span>🎁 Скидка (рулетка):</span><span>−${Math.min(payment.wheelDiscount, payment.subtotal)} сом</span></div>` : ''}
     ${!payment.freeOrder && payment.promoDiscount > 0 ? `<div class="buy-total-row discount"><span>🏷️ Промо-скидка:</span><span>−${payment.promoDiscount} сом</span></div>` : ''}
     ${payment.balanceUsed > 0 ? `<div class="buy-total-row discount"><span>💳 С баланса:</span><span>−${payment.balanceUsed} сом</span></div>` : ''}
     <div class="buy-total-row final"><span>Итого:</span><span>${payment.finalTotal} сом</span></div>
@@ -974,7 +941,7 @@ function updateCartUI() {
 
   // Sticky cart
   const subtotal = state.cart.reduce((s, c) => s + c.price * c.qty, 0);
-  const payment = calcOrderPayment(subtotal, null, false);
+  const payment = calcOrderPayment(subtotal, false);
   stickyTotal.textContent = `${payment.finalTotal} сом`;
   stickyCount.textContent = totalItems;
 
@@ -1028,7 +995,7 @@ async function submitBuyOrder(e) {
 
   const tgUser = tg?.initDataUnsafe?.user;
   const categoryName = getCategoryName(product.categoryId);
-  const payment = calcOrderPayment(product.price, null, state.buyUseBalance);
+  const payment = calcOrderPayment(product.price, state.buyUseBalance);
   const orderData = {
     userId: tgUser?.id || null,
     userName: tgUser ? `${tgUser.first_name || ''} ${tgUser.last_name || ''}`.trim() : 'Аноним',
@@ -1048,7 +1015,6 @@ async function submitBuyOrder(e) {
       qty: 1
     }],
     total: payment.subtotal,
-    discount: payment.wheelDiscount,
     useBalance: payment.balanceUsed,
     finalTotal: payment.finalTotal
   };
@@ -1133,7 +1099,7 @@ function renderCartItems() {
   });
 
   const subtotal = state.cart.reduce((s, c) => s + c.price * c.qty, 0);
-  const payment = calcOrderPayment(subtotal, null, state.cartUseBalance);
+  const payment = calcOrderPayment(subtotal, state.cartUseBalance);
 
   subtotalEl.textContent = `${payment.subtotal} сом`;
   totalEl.textContent = `${payment.finalTotal} сом`;
@@ -1144,10 +1110,7 @@ function renderCartItems() {
     discountDisplay.textContent = `Бесплатный заказ (−${payment.subtotal} сом)`;
   } else if (payment.discount > 0) {
     discountRow.classList.remove('hidden');
-    const parts = [];
-    if (payment.wheelDiscount > 0) parts.push(`рулетка −${Math.min(payment.wheelDiscount, payment.subtotal)}`);
-    if (payment.promoDiscount > 0) parts.push(`промо −${payment.promoDiscount}`);
-    discountDisplay.textContent = parts.length ? parts.join(', ') : `−${payment.discount} сом`;
+    discountDisplay.textContent = `промо −${payment.promoDiscount} сом`;
   } else {
     discountRow.classList.add('hidden');
   }
@@ -1174,7 +1137,7 @@ async function checkout() {
 
   const tgUser = tg?.initDataUnsafe?.user;
   const subtotal = state.cart.reduce((s, c) => s + c.price * c.qty, 0);
-  const payment = calcOrderPayment(subtotal, null, state.cartUseBalance);
+  const payment = calcOrderPayment(subtotal, state.cartUseBalance);
 
   const orderData = {
     userId: tgUser?.id || null,
@@ -1182,7 +1145,6 @@ async function checkout() {
     username: tgUser?.username || '',
     items: state.cart.map(c => ({ id: c.id, name: c.name, price: c.price, qty: c.qty })),
     total: payment.subtotal,
-    discount: payment.wheelDiscount,
     useBalance: payment.balanceUsed,
     finalTotal: payment.finalTotal
   };
@@ -1201,9 +1163,7 @@ async function checkout() {
       state.pendingFreeOrder = false;
       await refreshUserBalance();
       state.cart = [];
-      state.discount = 0;
       state.cartUseBalance = false;
-      localStorage.removeItem('redshop_discount');
       updateCartUI();
       showOrderSuccess(orderData, savedCart);
     } catch {
@@ -1219,8 +1179,7 @@ async function checkout() {
       await submitOrderViaAPI(orderData);
     }
     state.cart = [];
-    state.discount = 0;
-    localStorage.removeItem('redshop_discount');
+    state.cartUseBalance = false;
     updateCartUI();
     showOrderSuccess(orderData, savedCart);
   } else {
@@ -1228,8 +1187,7 @@ async function checkout() {
     await submitOrderViaAPI(orderData);
     const savedCart = [...state.cart];
     state.cart = [];
-    state.discount = 0;
-    localStorage.removeItem('redshop_discount');
+    state.cartUseBalance = false;
     updateCartUI();
     showOrderSuccess(orderData, savedCart);
   }
@@ -1278,466 +1236,357 @@ function openBotChat() {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// ROULETTE — Neon vibrant redesign
+// WHEEL OF FORTUNE (server-side)
 // ═══════════════════════════════════════════════════════════════
 
-// Each segment: 4-stop gradient colours + neon border colour
-const SEGMENTS = [
-  {
-    label: '50', sub: 'сом', discount: 50, degrees: 270,
-    // Fire: bright orange → red → deep crimson
-    c0: '#ff8c00', c1: '#ff3300', c2: '#cc0000', c3: '#7a0000',
-    textDark: false, neon: '#ff4400'
-  },
-  {
-    label: '100', sub: 'сом', discount: 100, degrees: 54,
-    // Purple: violet → deep purple
-    c0: '#dd00ff', c1: '#9900cc', c2: '#660099', c3: '#330055',
-    textDark: false, neon: '#cc00ff'
-  },
-  {
-    label: '150', sub: 'сом', discount: 150, degrees: 36,
-    // Gold jackpot: white → gold → amber
-    c0: '#ffffff', c1: '#ffe033', c2: '#ffaa00', c3: '#cc6600',
-    textDark: true, neon: '#ffd700'
-  }
+const WHEEL_SEGMENTS = [
+  { label: '50', prize: 50, c0: '#3a1010', c1: '#6b1818', c2: '#a82020', c3: '#e31e24', neon: '#e31e24' },
+  { label: '100', prize: 100, c0: '#1a1028', c1: '#2a1840', c2: '#3d2560', c3: '#5a3880', neon: '#9b59b6' },
+  { label: '300', prize: 300, c0: '#1a1808', c1: '#3d3010', c2: '#6b5018', c3: '#a07820', neon: '#d4a017' },
+  { label: '500', prize: 500, c0: '#1a1a1a', c1: '#2d2d2d', c2: '#4a4a4a', c3: '#ffffff', neon: '#ffd700', textDark: true }
 ];
 
-// ─── Web Audio ──────────────────────────────────────────────────────────────
-let audioCtx = null;
-function getAudioCtx() {
-  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  return audioCtx;
+function formatCountdown(ms) {
+  const totalSec = Math.max(0, Math.ceil(ms / 1000));
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
-// Single tick sound (used during spin)
-function playTick(pitch = 600, vol = 0.18) {
-  try {
-    const ctx = getAudioCtx();
-    const osc = ctx.createOscillator();
-    const g   = ctx.createGain();
-    osc.connect(g); g.connect(ctx.destination);
-    osc.type = 'square';
-    osc.frequency.value = pitch;
-    g.gain.setValueAtTime(vol, ctx.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.04);
-    osc.start(ctx.currentTime);
-    osc.stop(ctx.currentTime + 0.04);
-  } catch {}
+function updateCooldownDisplay(ms) {
+  const timerEl = document.getElementById('spinCooldownTimer');
+  if (timerEl) timerEl.textContent = formatCountdown(ms);
 }
 
-// Win fanfare: ascending arpeggio
-function playWinSound() {
-  try {
-    const ctx = getAudioCtx();
-    const notes = [523, 659, 784, 1047, 1319]; // C E G C E
-    notes.forEach((freq, i) => {
-      const osc = ctx.createOscillator();
-      const g   = ctx.createGain();
-      osc.connect(g); g.connect(ctx.destination);
-      osc.type = 'sine';
-      osc.frequency.value = freq;
-      const t = ctx.currentTime + i * 0.11;
-      g.gain.setValueAtTime(0, t);
-      g.gain.linearRampToValueAtTime(0.35, t + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
-      osc.start(t); osc.stop(t + 0.35);
-    });
-  } catch {}
-}
-
-function checkSpinStatus() {
-  const lastSpin = localStorage.getItem('redshop_lastSpin');
-  const today = new Date().toDateString();
+function updateRouletteUI({ canSpin, remainingMs, noAuth }) {
   const spinBtn = document.getElementById('spinBtn');
   const cooldown = document.getElementById('spinCooldown');
 
-  if (lastSpin === today) {
-    if (spinBtn) spinBtn.classList.add('hidden');
-    if (cooldown) cooldown.classList.remove('hidden');
+  if (noAuth) {
+    if (spinBtn) {
+      spinBtn.classList.remove('hidden');
+      spinBtn.disabled = true;
+      spinBtn.textContent = 'Откройте через Telegram';
+    }
+    cooldown?.classList.add('hidden');
+    return;
+  }
+
+  if (canSpin) {
+    spinBtn?.classList.remove('hidden');
+    if (spinBtn) {
+      spinBtn.disabled = state.spinning;
+      spinBtn.textContent = 'Крутить';
+    }
+    cooldown?.classList.add('hidden');
+  } else {
+    if (spinBtn) spinBtn.disabled = true;
+    cooldown?.classList.remove('hidden');
+    updateCooldownDisplay(remainingMs || 0);
   }
 }
 
-function checkExistingDiscount() {
-  const saved = localStorage.getItem('redshop_discount');
-  const lastSpin = localStorage.getItem('redshop_lastSpin');
-  const today = new Date().toDateString();
+function startRouletteCountdown() {
+  if (state.rouletteTimerInterval) {
+    clearInterval(state.rouletteTimerInterval);
+    state.rouletteTimerInterval = null;
+  }
+  if (state.rouletteRemainingMs <= 0) return;
 
-  if (saved && lastSpin === today) {
-    applyDiscount(parseInt(saved), false);
+  state.rouletteTimerInterval = setInterval(() => {
+    state.rouletteRemainingMs = Math.max(0, state.rouletteRemainingMs - 1000);
+    updateCooldownDisplay(state.rouletteRemainingMs);
+    if (state.rouletteRemainingMs <= 0) {
+      clearInterval(state.rouletteTimerInterval);
+      state.rouletteTimerInterval = null;
+      refreshRouletteStatus();
+    }
+  }, 1000);
+}
+
+async function refreshRouletteStatus() {
+  const initData = getTelegramInitData();
+  if (!initData) {
+    updateRouletteUI({ canSpin: false, remainingMs: 0, noAuth: true });
+    return;
+  }
+  try {
+    const res = await fetch(`${API}/roulette/status`, {
+      headers: { 'x-telegram-init-data': initData }
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Ошибка');
+    state.rouletteRemainingMs = data.remainingMs || 0;
+    updateRouletteUI(data);
+    startRouletteCountdown();
+  } catch {
+    updateRouletteUI({ canSpin: false, remainingMs: 0, noAuth: false });
   }
 }
 
-function openRoulette() {
-  openModal('rouletteModal');
-  // Draw initial wheel
+function initBonusWheel() {
   requestAnimationFrame(() => drawWheel(state.wheelRotation));
+  refreshRouletteStatus();
 }
 
 function drawWheel(rotation, glowIntensity = 1) {
   const canvas = document.getElementById('wheelCanvas');
   if (!canvas) return;
   const ctx = canvas.getContext('2d');
-  const W = canvas.width, H = canvas.height;
-  const cx = W / 2, cy = H / 2;
-  const R = Math.min(cx, cy) - 12;
+  const W = canvas.width;
+  const H = canvas.height;
+  const cx = W / 2;
+  const cy = H / 2;
+  const R = Math.min(cx, cy) - 14;
+  const gi = Math.max(0.3, glowIntensity);
 
   ctx.clearRect(0, 0, W, H);
 
-  // ── Neon outer glow ring (multi-layer) ──
-  const gi = Math.max(0.3, glowIntensity);
-  [
-    { r: R + 22, a: 0.08 * gi },
-    { r: R + 14, a: 0.18 * gi },
-    { r: R + 6,  a: 0.35 * gi }
-  ].forEach(({ r, a }) => {
-    const halo = ctx.createRadialGradient(cx, cy, R - 4, cx, cy, r);
-    halo.addColorStop(0, `rgba(255,80,0,0)`);
-    halo.addColorStop(0.6, `rgba(255,100,0,${a * 0.6})`);
-    halo.addColorStop(1,   `rgba(255,200,0,${a})`);
-    ctx.beginPath(); ctx.arc(cx, cy, r, 0, 2 * Math.PI);
-    ctx.fillStyle = halo; ctx.fill();
-  });
+  const halo = ctx.createRadialGradient(cx, cy, R - 4, cx, cy, R + 18);
+  halo.addColorStop(0, 'rgba(227,30,36,0)');
+  halo.addColorStop(0.7, `rgba(227,30,36,${0.12 * gi})`);
+  halo.addColorStop(1, `rgba(227,30,36,${0.25 * gi})`);
+  ctx.beginPath();
+  ctx.arc(cx, cy, R + 18, 0, 2 * Math.PI);
+  ctx.fillStyle = halo;
+  ctx.fill();
 
   ctx.save();
   ctx.translate(cx, cy);
   ctx.rotate(rotation);
 
+  const sectorAngle = (Math.PI * 2) / WHEEL_SEGMENTS.length;
   let startAngle = -Math.PI / 2;
 
-  SEGMENTS.forEach(seg => {
-    const angle    = (seg.degrees / 360) * 2 * Math.PI;
-    const midAngle = startAngle + angle / 2;
-
-    // 4-stop radial gradient from center outward
-    const gx1 = Math.cos(midAngle) * R * 0.12, gy1 = Math.sin(midAngle) * R * 0.12;
-    const gx2 = Math.cos(midAngle) * R * 0.98, gy2 = Math.sin(midAngle) * R * 0.98;
+  WHEEL_SEGMENTS.forEach(seg => {
+    const midAngle = startAngle + sectorAngle / 2;
+    const gx1 = Math.cos(midAngle) * R * 0.1;
+    const gy1 = Math.sin(midAngle) * R * 0.1;
+    const gx2 = Math.cos(midAngle) * R;
+    const gy2 = Math.sin(midAngle) * R;
     const grad = ctx.createLinearGradient(gx1, gy1, gx2, gy2);
-    grad.addColorStop(0,    seg.c0);
-    grad.addColorStop(0.3,  seg.c1);
-    grad.addColorStop(0.65, seg.c2);
-    grad.addColorStop(1,    seg.c3);
+    grad.addColorStop(0, seg.c0);
+    grad.addColorStop(0.35, seg.c1);
+    grad.addColorStop(0.7, seg.c2);
+    grad.addColorStop(1, seg.c3);
 
     ctx.beginPath();
     ctx.moveTo(0, 0);
-    ctx.arc(0, 0, R, startAngle, startAngle + angle);
+    ctx.arc(0, 0, R, startAngle, startAngle + sectorAngle);
     ctx.closePath();
     ctx.fillStyle = grad;
     ctx.fill();
 
-    // Sector dividers — black with slight glow
-    ctx.shadowColor = 'rgba(0,0,0,0.9)';
-    ctx.shadowBlur = 4;
-    ctx.strokeStyle = 'rgba(0,0,0,0.95)';
-    ctx.lineWidth = 3;
+    ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+    ctx.lineWidth = 2.5;
     ctx.stroke();
-    ctx.shadowBlur = 0;
 
-    // Inner radial light burst (highlight near centre)
-    const burst = ctx.createRadialGradient(0, 0, 0, 0, 0, R * 0.5);
-    burst.addColorStop(0,   'rgba(255,255,255,0.22)');
-    burst.addColorStop(0.5, 'rgba(255,255,255,0.06)');
-    burst.addColorStop(1,   'rgba(255,255,255,0)');
-    ctx.beginPath();
-    ctx.moveTo(0, 0);
-    ctx.arc(0, 0, R * 0.5, startAngle, startAngle + angle);
-    ctx.closePath();
-    ctx.fillStyle = burst;
-    ctx.fill();
-
-    // ── Text ──
     const tr = R * 0.62;
     const tx = Math.cos(midAngle) * tr;
     const ty = Math.sin(midAngle) * tr;
-    const textCol   = seg.textDark ? '#1a1a1a' : '#ffffff';
-    const glowCol   = seg.textDark ? 'rgba(0,0,0,0.4)' : seg.neon;
+    const textCol = seg.textDark ? '#1a1a1a' : '#ffffff';
 
     ctx.save();
     ctx.translate(tx, ty);
     ctx.rotate(midAngle + Math.PI / 2);
-
-    const bigFont = seg.degrees >= 200 ? 32 : seg.degrees >= 50 ? 24 : 18;
-    const subFont = seg.degrees >= 200 ? 14 : seg.degrees >= 50 ? 11 : 9;
-    const bigOff  = seg.degrees >= 200 ? -11 : -8;
-    const subOff  = seg.degrees >= 200 ?  14 : seg.degrees >= 50 ? 11 : 9;
-
-    // Number with neon text shadow
-    ctx.shadowColor = glowCol; ctx.shadowBlur = 12;
+    ctx.shadowColor = seg.neon;
+    ctx.shadowBlur = 10;
     ctx.fillStyle = textCol;
-    ctx.font = `900 ${bigFont}px Inter, Arial, sans-serif`;
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(seg.label, 0, bigOff);
-    // Second pass for extra punch
-    ctx.shadowBlur = 6;
-    ctx.fillText(seg.label, 0, bigOff);
-
-    // "сом"
-    ctx.shadowBlur = 6;
-    ctx.font = `700 ${subFont}px Inter, Arial, sans-serif`;
-    ctx.fillStyle = seg.textDark ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.9)';
-    ctx.fillText(seg.sub, 0, subOff);
-
+    ctx.font = '900 26px Inter, Arial, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(seg.label, 0, -6);
+    ctx.shadowBlur = 4;
+    ctx.font = '700 11px Inter, Arial, sans-serif';
+    ctx.fillStyle = seg.textDark ? 'rgba(0,0,0,0.65)' : 'rgba(255,255,255,0.85)';
+    ctx.fillText('сом', 0, 12);
     ctx.restore();
-    startAngle += angle;
-  });
 
-  // ── Tick marks on the rim ──
-  for (let deg = 0; deg < 360; deg += 5) {
-    const rad   = deg * Math.PI / 180;
-    const major = deg % 30 === 0;
-    const len   = major ? 9 : 5;
-    ctx.beginPath();
-    ctx.moveTo(Math.cos(rad) * (R - len), Math.sin(rad) * (R - len));
-    ctx.lineTo(Math.cos(rad) * R,          Math.sin(rad) * R);
-    ctx.strokeStyle = major ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.2)';
-    ctx.lineWidth   = major ? 2.5 : 1;
-    ctx.stroke();
-  }
-
-  // ── Diamond markers at sector boundaries ──
-  let bAngle = -Math.PI / 2;
-  SEGMENTS.forEach(seg => {
-    const dx = Math.cos(bAngle) * (R + 2);
-    const dy = Math.sin(bAngle) * (R + 2);
-    ctx.save();
-    ctx.translate(dx, dy);
-    ctx.rotate(bAngle);
-    ctx.shadowColor = '#ffd700'; ctx.shadowBlur = 8;
-    ctx.beginPath();
-    ctx.moveTo(0,-6); ctx.lineTo(3.5,0); ctx.lineTo(0,6); ctx.lineTo(-3.5,0);
-    ctx.closePath();
-    ctx.fillStyle = '#ffffff'; ctx.fill();
-    ctx.restore();
-    bAngle += (seg.degrees / 360) * 2 * Math.PI;
+    startAngle += sectorAngle;
   });
 
   ctx.restore();
 
-  // ── Neon outer border (two layers) ──
-  ctx.shadowColor = '#ff4400'; ctx.shadowBlur = 18 * gi;
-  ctx.beginPath(); ctx.arc(cx, cy, R, 0, 2 * Math.PI);
-  ctx.strokeStyle = '#ff6600'; ctx.lineWidth = 5; ctx.stroke();
-  ctx.shadowColor = '#ffcc00'; ctx.shadowBlur = 8 * gi;
-  ctx.strokeStyle = 'rgba(255,220,0,0.6)'; ctx.lineWidth = 2; ctx.stroke();
+  ctx.shadowColor = '#e31e24';
+  ctx.shadowBlur = 14 * gi;
+  ctx.beginPath();
+  ctx.arc(cx, cy, R, 0, 2 * Math.PI);
+  ctx.strokeStyle = '#e31e24';
+  ctx.lineWidth = 4;
+  ctx.stroke();
   ctx.shadowBlur = 0;
 
-  // ── Metallic sheen ring ──
-  const metal = ctx.createLinearGradient(cx - R, cy - R, cx + R, cy + R);
-  metal.addColorStop(0,   'rgba(255,255,255,0.3)');
-  metal.addColorStop(0.5, 'rgba(255,255,255,0.05)');
-  metal.addColorStop(1,   'rgba(255,255,255,0.2)');
-  ctx.beginPath(); ctx.arc(cx, cy, R + 2, 0, 2 * Math.PI);
-  ctx.strokeStyle = metal; ctx.lineWidth = 3; ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(cx, cy, 28, 0, 2 * Math.PI);
+  ctx.fillStyle = '#0a0a0a';
+  ctx.fill();
+  ctx.strokeStyle = '#e31e24';
+  ctx.lineWidth = 3;
+  ctx.stroke();
 
-  // ── Hub shadow ──
-  ctx.shadowColor = 'rgba(0,0,0,0.8)'; ctx.shadowBlur = 16;
-  ctx.beginPath(); ctx.arc(cx, cy, 30, 0, 2 * Math.PI);
-  ctx.fillStyle = '#050505'; ctx.fill();
-  ctx.shadowBlur = 0;
-
-  // Hub neon ring
-  ctx.shadowColor = '#ff4400'; ctx.shadowBlur = 12;
-  ctx.beginPath(); ctx.arc(cx, cy, 28, 0, 2 * Math.PI);
-  ctx.strokeStyle = '#ff6600'; ctx.lineWidth = 3; ctx.stroke();
-  ctx.shadowBlur = 0;
-
-  // Hub gradient fill
-  const hub = ctx.createRadialGradient(cx - 6, cy - 6, 2, cx, cy, 26);
-  hub.addColorStop(0, '#ff7700'); hub.addColorStop(0.5, '#cc3300'); hub.addColorStop(1, '#550000');
-  ctx.beginPath(); ctx.arc(cx, cy, 26, 0, 2 * Math.PI);
-  ctx.fillStyle = hub; ctx.fill();
-
-  // Hub inner highlight
-  ctx.beginPath(); ctx.arc(cx - 7, cy - 7, 8, 0, 2 * Math.PI);
-  ctx.fillStyle = 'rgba(255,255,255,0.22)'; ctx.fill();
-
-  // Hub centre dot
-  ctx.beginPath(); ctx.arc(cx, cy, 5, 0, 2 * Math.PI);
-  ctx.fillStyle = '#ff9900'; ctx.fill();
+  const hub = ctx.createRadialGradient(cx - 5, cy - 5, 2, cx, cy, 24);
+  hub.addColorStop(0, '#e31e24');
+  hub.addColorStop(1, '#5a0a0a');
+  ctx.beginPath();
+  ctx.arc(cx, cy, 22, 0, 2 * Math.PI);
+  ctx.fillStyle = hub;
+  ctx.fill();
 }
 
-function spinWheel() {
-  const lastSpin = localStorage.getItem('redshop_lastSpin');
-  const today = new Date().toDateString();
-
-  if (lastSpin === today) {
-    showToast('Вы уже крутили рулетку сегодня!', 'error');
-    return;
-  }
-  if (state.spinning) return;
-
-  state.spinning = true;
-  const canvas = document.getElementById('wheelCanvas');
-  if (canvas) canvas.classList.add('spinning');
-  document.getElementById('spinBtn').disabled = true;
-  document.getElementById('spinResultBox')?.classList.add('hidden');
-  document.getElementById('wheelWinGlow')?.classList.remove('active');
-
-  // Weighted probability
-  const rand = Math.random() * 100;
-  let resultIdx;
-  if (rand < 75) resultIdx = 0;
-  else if (rand < 90) resultIdx = 1;
-  else resultIdx = 2;
-
-  const seg = SEGMENTS[resultIdx];
-
-  // Cumulative angles (degrees from 12 o'clock, clockwise)
-  const cumDeg = [];
-  let cum = 0;
-  SEGMENTS.forEach(s => { cumDeg.push(cum); cum += s.degrees; });
-
-  // Pick a random point inside the winning segment
-  const targetDeg = cumDeg[resultIdx] + seg.degrees * (0.15 + Math.random() * 0.7);
-  const extraSpins = 6 + Math.floor(Math.random() * 3);
-  const finalDeg = -(extraSpins * 360 + targetDeg);
-  const finalRad = finalDeg * Math.PI / 180;
-
+function animateWheelToSector(sectorIndex, prize, onComplete) {
+  const targetDeg = sectorIndex * 90 + 90 * (0.25 + Math.random() * 0.5);
+  const extraSpins = 5 + Math.floor(Math.random() * 3);
+  const finalRad = -(extraSpins * 360 + targetDeg) * Math.PI / 180;
   const startRot = state.wheelRotation;
   const startTime = performance.now();
-  const duration = 5000;
-  let lastTickAngle = 0;
-  const tickInterval = 30; // degrees between ticks (gets bigger = slower = more spread)
+  const duration = 4800;
+  const canvas = document.getElementById('wheelCanvas');
+  if (canvas) canvas.classList.add('spinning');
 
   function easeOut(t) {
     return 1 - Math.pow(1 - t, 5);
   }
 
   function animate(now) {
-    const elapsed = now - startTime;
-    const t = Math.min(elapsed / duration, 1);
+    const t = Math.min((now - startTime) / duration, 1);
     const eased = easeOut(t);
     state.wheelRotation = startRot + (finalRad - startRot) * eased;
-
-    // Tick sound: fire when wheel crosses a tick mark during fast spin
-    const currentDeg = Math.abs(state.wheelRotation * 180 / Math.PI) % 360;
-    const speed = 1 - t; // speed factor (1 = fast, 0 = stopped)
-    const dynInterval = tickInterval + (1 - speed) * 120; // intervals widen as it slows
-    if (Math.abs(currentDeg - lastTickAngle) >= dynInterval) {
-      lastTickAngle = currentDeg;
-      const pitch = 300 + speed * 900;
-      playTick(pitch, 0.08 + speed * 0.15);
-    }
-
-    // Glow intensity pulses with speed
-    drawWheel(state.wheelRotation, 0.4 + speed * 0.8);
+    drawWheel(state.wheelRotation, 0.4 + (1 - t) * 0.8);
 
     if (t < 1) {
       requestAnimationFrame(animate);
     } else {
-      state.spinning = false;
       if (canvas) canvas.classList.remove('spinning');
       state.wheelRotation = finalRad % (2 * Math.PI);
-      drawWheel(state.wheelRotation, 1.5); // bright flash on stop
-
-      localStorage.setItem('redshop_lastSpin', today);
-      localStorage.setItem('redshop_discount', seg.discount);
-
-      // Win glow + sound
-      const glowEl = document.getElementById('wheelWinGlow');
-      if (glowEl) glowEl.classList.add('active');
-      playWinSound();
-
-      // Show result popup
-      const resultBox = document.getElementById('spinResultBox');
-      const resultText = document.getElementById('spinResultText');
-      const resultIcon = document.getElementById('spinResultIcon');
-      const resultSub  = document.getElementById('spinResultSub');
-      if (resultBox) {
-        const emojis = { 50: '🎉', 100: '🎊', 150: '🤩' };
-        resultIcon.textContent = emojis[seg.discount] || '🎉';
-        resultText.textContent = `${seg.discount} сом скидки!`;
-        if (resultSub) resultSub.textContent = 'Скидка применена к вашему заказу';
-        resultBox.classList.remove('hidden');
-        launchSparkles(resultBox);
-        launchConfetti();
-      }
-
-      applyDiscount(seg.discount, false);
-      document.getElementById('spinBtn').classList.add('hidden');
-      document.getElementById('spinCooldown').classList.remove('hidden');
-      showToast(`🎉 Скидка ${seg.discount} сом применена!`, 'success');
+      drawWheel(state.wheelRotation, 1.4);
+      onComplete(prize);
     }
   }
 
   requestAnimationFrame(animate);
 }
 
+async function spinWheel() {
+  if (state.spinning) return;
+
+  const initData = getTelegramInitData();
+  if (!initData) {
+    showToast('Откройте приложение через Telegram', 'error');
+    return;
+  }
+
+  const spinBtn = document.getElementById('spinBtn');
+  state.spinning = true;
+  if (spinBtn) {
+    spinBtn.disabled = true;
+    spinBtn.textContent = 'Крутим…';
+  }
+  document.getElementById('spinResultBox')?.classList.add('hidden');
+  document.getElementById('wheelWinGlow')?.classList.remove('active');
+
+  try {
+    const res = await fetch(`${API}/roulette/spin`, {
+      method: 'POST',
+      headers: { 'x-telegram-init-data': initData }
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      if (data.remainingMs) {
+        state.rouletteRemainingMs = data.remainingMs;
+        updateRouletteUI({ canSpin: false, remainingMs: data.remainingMs });
+        startRouletteCountdown();
+      }
+      throw new Error(data.error || 'Не удалось крутить');
+    }
+
+    animateWheelToSector(data.sectorIndex, data.prize, async (prize) => {
+      document.getElementById('wheelWinGlow')?.classList.add('active');
+
+      const resultBox = document.getElementById('spinResultBox');
+      const resultText = document.getElementById('spinResultText');
+      const resultIcon = document.getElementById('spinResultIcon');
+      const resultSub = document.getElementById('spinResultSub');
+      if (resultBox && resultText) {
+        const emojis = { 50: '🎉', 100: '🎊', 300: '✨', 500: '🏆' };
+        if (resultIcon) resultIcon.textContent = emojis[prize] || '🎉';
+        resultText.textContent = `Вы выиграли ${prize} сом`;
+        if (resultSub) resultSub.textContent = 'Приз зачислен на баланс';
+        resultBox.classList.remove('hidden');
+        launchSparkles(resultBox);
+        launchConfetti();
+      }
+
+      if (typeof data.balance === 'number') state.userBalance = data.balance;
+      await refreshUserBalance();
+      const balanceEl = document.getElementById('profileBalance');
+      if (balanceEl) balanceEl.textContent = String(state.userBalance);
+
+      state.rouletteRemainingMs = data.remainingMs || 24 * 60 * 60 * 1000;
+      updateRouletteUI({ canSpin: false, remainingMs: state.rouletteRemainingMs });
+      startRouletteCountdown();
+      showToast(`🎉 +${prize} сом на баланс!`, 'success');
+
+      state.spinning = false;
+    });
+  } catch (err) {
+    state.spinning = false;
+    if (spinBtn) {
+      spinBtn.disabled = false;
+      spinBtn.textContent = 'Крутить';
+    }
+    showToast(err.message || 'Ошибка', 'error');
+  }
+}
+
 function launchSparkles(container) {
   const sparkleEl = container.querySelector('.spin-sparkles');
   if (!sparkleEl) return;
   sparkleEl.innerHTML = '';
-  const colors = ['#ff4400','#ff8800','#ffd700','#cc00ff','#ffffff','#ff3399'];
-  for (let i = 0; i < 24; i++) {
+  const colors = ['#e31e24', '#ff4444', '#ffd700', '#ffffff', '#ff8800'];
+  for (let i = 0; i < 20; i++) {
     const s = document.createElement('div');
     s.className = 'sparkle';
     const angle = Math.random() * 360;
-    const dist  = 50 + Math.random() * 100;
+    const dist = 50 + Math.random() * 90;
     s.style.cssText = `
       left: ${40 + Math.random() * 20}%;
-      top:  ${30 + Math.random() * 30}%;
+      top: ${30 + Math.random() * 30}%;
       background: ${colors[Math.floor(Math.random() * colors.length)]};
-      width: ${4 + Math.random() * 7}px;
-      height: ${4 + Math.random() * 7}px;
-      --dx: ${Math.cos(angle * Math.PI/180) * dist}px;
-      --dy: ${Math.sin(angle * Math.PI/180) * dist}px;
-      --dur: ${0.5 + Math.random() * 0.9}s;
-      animation-delay: ${Math.random() * 0.25}s;
+      width: ${4 + Math.random() * 6}px;
+      height: ${4 + Math.random() * 6}px;
+      --dx: ${Math.cos(angle * Math.PI / 180) * dist}px;
+      --dy: ${Math.sin(angle * Math.PI / 180) * dist}px;
+      --dur: ${0.5 + Math.random() * 0.8}s;
+      animation-delay: ${Math.random() * 0.2}s;
     `;
     sparkleEl.appendChild(s);
   }
 }
 
-// Full-screen confetti shower on win
 function launchConfetti() {
-  const colors = ['#ff4400','#ff8800','#ffd700','#cc00ff','#00ccff','#ff3399','#ffffff','#44ff44'];
-  const modal = document.getElementById('rouletteModal');
-  if (!modal) return;
-
-  for (let i = 0; i < 60; i++) {
+  const container = document.getElementById('bonusView');
+  if (!container) return;
+  const colors = ['#e31e24', '#ff4444', '#ffd700', '#ffffff', '#ff8800'];
+  for (let i = 0; i < 40; i++) {
     const piece = document.createElement('div');
     piece.className = 'confetti-piece';
-    const size  = 5 + Math.random() * 9;
-    const isRect = Math.random() > 0.4;
+    const size = 5 + Math.random() * 8;
     piece.style.cssText = `
       left: ${Math.random() * 100}%;
       top: -12px;
       width: ${size}px;
-      height: ${isRect ? size * 0.5 : size}px;
+      height: ${size * 0.5}px;
       background: ${colors[Math.floor(Math.random() * colors.length)]};
-      border-radius: ${isRect ? '2px' : '50%'};
-      animation-delay: ${Math.random() * 0.8}s;
-      animation-duration: ${1.0 + Math.random() * 1.2}s;
+      border-radius: 2px;
+      animation-delay: ${Math.random() * 0.6}s;
+      animation-duration: ${1.0 + Math.random() * 1.0}s;
       --spin: ${Math.random() > 0.5 ? '' : '-'}${360 + Math.random() * 720}deg;
-      --dx: ${(Math.random() - 0.5) * 120}px;
+      --dx: ${(Math.random() - 0.5) * 100}px;
     `;
-    modal.appendChild(piece);
-    setTimeout(() => piece.remove(), 3000);
+    container.appendChild(piece);
+    setTimeout(() => piece.remove(), 2500);
   }
-}
-
-function applyDiscount(amount, closeRoulette = false) {
-  state.discount = amount;
-  const banner = document.getElementById('discountBanner');
-  const amountEl = document.getElementById('discountBannerAmount');
-  if (banner && amountEl) {
-    amountEl.textContent = amount;
-    banner.classList.remove('hidden');
-  }
-  updateCartUI();
-  renderProfile();
-  if (closeRoulette) closeModal('rouletteModal');
-}
-
-function removeDiscount() {
-  state.discount = 0;
-  localStorage.removeItem('redshop_discount');
-  localStorage.removeItem('redshop_lastSpin'); // allow re-spin if discount removed? No — keep it.
-  localStorage.setItem('redshop_lastSpin', new Date().toDateString()); // keep spin used
-  document.getElementById('discountBanner').classList.add('hidden');
-  updateCartUI();
-  renderProfile();
-  showToast('Скидка убрана');
 }
 
 // ═══════════════════════════════════════════════════════════════
