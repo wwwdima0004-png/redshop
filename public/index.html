@@ -85,40 +85,42 @@
     </div>
   </header>
 
-  <!-- Wheel of Fortune banner -->
-  <div class="roulette-banner" onclick="switchMainTab('bonus')">
-    <div class="roulette-banner-content">
-      <span class="roulette-icon">🎡</span>
-      <div>
-        <div class="roulette-banner-title">Колесо Фортуны</div>
-        <div class="roulette-banner-sub">Выиграй до 500 сом на баланс • раз в 24 часа</div>
-      </div>
+  <!-- Promo banner -->
+  <section class="catalog-promo">
+    <div class="catalog-promo-tag">🔥 НИЗКИЕ ЦЕНЫ, УЖЕ СЕГОДНЯ</div>
+    <h2 class="catalog-promo-title">График с 13:00 до 00:00</h2>
+    <p class="catalog-promo-sub">Поступление уже в боте!!!</p>
+    <button type="button" class="catalog-promo-btn" onclick="switchMainTab('bonus')">Крутить колесо</button>
+  </section>
+
+  <section class="catalog-section">
+    <div class="catalog-heading">
+      <h2 class="catalog-heading-title" id="catalogTitle">Каталог</h2>
+      <p class="catalog-heading-count" id="catalogCount">0 товаров</p>
     </div>
-    <span class="arrow-right">›</span>
-  </div>
 
-  <!-- Catalog -->
-  <div class="catalog-header">
-    <button id="catalogBackBtn" class="catalog-back-btn hidden" type="button" onclick="backToCategories()">← Назад</button>
-    <div class="catalog-header-main">
-      <h2 id="catalogTitle">Waka line</h2>
-      <span id="catalogCount" class="catalog-count"></span>
+    <div class="catalog-search-wrap">
+      <svg class="catalog-search-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/>
+        <path d="M20 20l-3.5-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+      <input type="search" id="catalogSearch" class="catalog-search-input"
+        placeholder="Поиск по названию или вкусу..."
+        oninput="onCatalogSearch(this.value)" autocomplete="off">
     </div>
-  </div>
 
-  <div id="categoriesView" class="categories-grid">
-    <!-- Positions injected by JS -->
-  </div>
+    <div class="catalog-chips" id="catalogChips"></div>
 
-  <div id="catalog" class="catalog-grid hidden">
-    <!-- Products injected by JS -->
-  </div>
+    <div id="catalog" class="catalog-grid">
+      <!-- Products injected by JS -->
+    </div>
 
-  <!-- Empty state -->
-  <div id="catalogEmpty" class="empty-state hidden">
-    <div class="empty-icon">📦</div>
-    <div>Товары не найдены</div>
-  </div>
+    <!-- Empty state -->
+    <div id="catalogEmpty" class="empty-state hidden">
+      <div class="empty-icon">📦</div>
+      <div>Товары не найдены</div>
+    </div>
+  </section>
 
   <!-- Sticky cart button -->
   <div id="stickyCart" class="sticky-cart hidden" onclick="openCart()">

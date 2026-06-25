@@ -16,6 +16,7 @@ const state = {
   products: [],
   categories: [],
   selectedCategoryId: null,
+  catalogSearchQuery: '',
   cart: [],        // [{id, name, price, photo, qty}]
   adminPassword: null,       // legacy (kept for backward compat)
   telegramInitData: null,    // Telegram initData string (cryptographic)
@@ -691,18 +692,16 @@ function getCategoryProductCount(categoryId) {
 }
 
 async function initShop(attempt = 1) {
-  const categoriesView = document.getElementById('categoriesView');
   const catalog = document.getElementById('catalog');
   const empty = document.getElementById('catalogEmpty');
 
   if (attempt === 1) {
-    categoriesView.innerHTML = `
-      <div class="loading-products" style="text-align:center;padding:40px 20px;color:#888">
-        <div style="font-size:2rem;margin-bottom:10px">⏳</div>
+    catalog.innerHTML = `
+      <div class="catalog-loading" style="grid-column:1/-1">
+        <div class="catalog-loading-icon">⏳</div>
         <div>Загрузка каталога...</div>
       </div>`;
-    catalog.classList.add('hidden');
-    categoriesView.classList.remove('hidden');
+    catalog.classList.remove('hidden');
     empty.classList.add('hidden');
   }
 
@@ -717,24 +716,27 @@ async function initShop(attempt = 1) {
     state.products = products;
     state.categories = categories;
     state.selectedCategoryId = null;
+    state.catalogSearchQuery = '';
+    const searchInput = document.getElementById('catalogSearch');
+    if (searchInput) searchInput.value = '';
     showCategoriesView();
   } catch (err) {
     if (attempt < 4) {
       const delay = attempt * 5000;
-      categoriesView.innerHTML = `
-        <div class="loading-products" style="text-align:center;padding:40px 20px;color:#888">
-          <div style="font-size:2rem;margin-bottom:10px">🔄</div>
+      catalog.innerHTML = `
+        <div class="catalog-loading" style="grid-column:1/-1">
+          <div class="catalog-loading-icon">🔄</div>
           <div>Сервер запускается, подождите...</div>
-          <div style="font-size:0.8rem;margin-top:6px;color:#555">Попытка ${attempt + 1} через ${delay / 1000} сек</div>
+          <div class="catalog-loading-hint">Попытка ${attempt + 1} через ${delay / 1000} сек</div>
         </div>`;
       setTimeout(() => initShop(attempt + 1), delay);
     } else {
-      categoriesView.innerHTML = '';
+      catalog.innerHTML = '';
       empty.classList.remove('hidden');
       empty.innerHTML = `
         <div class="empty-icon">⚠️</div>
         <div>Не удалось загрузить каталог</div>
-        <div style="font-size:0.8rem;color:#666;margin-top:6px">${err.message}</div>
+        <div class="catalog-loading-hint">${err.message}</div>
         <button class="btn-outline" style="margin-top:16px" onclick="initShop()">Попробовать снова</button>`;
       showToast('Ошибка загрузки каталога', 'error');
     }
@@ -749,6 +751,7 @@ async function loadProducts(attempt = 1) {
     ]);
     state.products = products;
     state.categories = categories;
+    renderCategoryChips();
     if (state.selectedCategoryId) renderCatalog();
     else showCategoriesView();
   } catch (err) {
@@ -762,12 +765,70 @@ async function loadProducts(attempt = 1) {
 
 function showCategoriesView() {
   state.selectedCategoryId = null;
-  document.getElementById('catalogTitle').textContent = 'Waka line';
-  document.getElementById('catalogBackBtn').classList.add('hidden');
-  document.getElementById('catalog').classList.add('hidden');
-  document.getElementById('catalogEmpty').classList.add('hidden');
-  document.getElementById('categoriesView').classList.remove('hidden');
-  renderCategories();
+  state.catalogSearchQuery = '';
+  const searchInput = document.getElementById('catalogSearch');
+  if (searchInput) searchInput.value = '';
+  document.getElementById('catalog')?.classList.remove('hidden');
+  document.getElementById('catalogEmpty')?.classList.add('hidden');
+  renderCategoryChips();
+  renderCatalog();
+}
+
+function onCatalogSearch(value) {
+  state.catalogSearchQuery = value;
+  renderCatalog();
+}
+
+function setCatalogFilter(categoryId) {
+  state.selectedCategoryId = categoryId;
+  renderCategoryChips();
+  renderCatalog();
+}
+
+function getFilteredCatalogProducts() {
+  let list = state.products;
+  if (state.selectedCategoryId) {
+    list = list.filter(p => p.categoryId === state.selectedCategoryId);
+  }
+  const q = (state.catalogSearchQuery || '').trim().toLowerCase();
+  if (q) {
+    list = list.filter(p =>
+      (p.name || '').toLowerCase().includes(q) ||
+      (p.description || '').toLowerCase().includes(q)
+    );
+  }
+  return list;
+}
+
+function getProductDiscountPercent(product) {
+  const price = Number(product.price) || 0;
+  const oldPrice = Number(product.oldPrice);
+  if (oldPrice && oldPrice > price) {
+    return Math.round((1 - price / oldPrice) * 100);
+  }
+  return 0;
+}
+
+function renderCategoryChips() {
+  const wrap = document.getElementById('catalogChips');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+
+  const allBtn = document.createElement('button');
+  allBtn.type = 'button';
+  allBtn.className = `catalog-chip${!state.selectedCategoryId ? ' active' : ''}`;
+  allBtn.textContent = 'Все';
+  allBtn.onclick = () => setCatalogFilter(null);
+  wrap.appendChild(allBtn);
+
+  state.categories.forEach(cat => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = `catalog-chip${state.selectedCategoryId === cat.id ? ' active' : ''}`;
+    btn.textContent = cat.name;
+    btn.onclick = () => setCatalogFilter(cat.id);
+    wrap.appendChild(btn);
+  });
 }
 
 function normalizePhotoSrc(photo) {
@@ -777,57 +838,12 @@ function normalizePhotoSrc(photo) {
 }
 
 function renderCategories() {
-  const grid = document.getElementById('categoriesView');
-  const countEl = document.getElementById('catalogCount');
-
-  grid.innerHTML = '';
-  countEl.textContent = `${state.categories.length} поз.`;
-
-  if (state.categories.length === 0) {
-    grid.innerHTML = `
-      <div class="empty-state" style="grid-column:1/-1">
-        <div class="empty-icon">📦</div>
-        <div>Позиции не найдены</div>
-      </div>`;
-    return;
-  }
-
-  state.categories.forEach(cat => {
-    const total = getCategoryProductCount(cat.id);
-    const available = state.products.filter(p => p.categoryId === cat.id && p.available).length;
-    const photoSrc = normalizePhotoSrc(cat.photo);
-    const hasRealPhoto = cat.photo && !cat.photo.includes('placeholder');
-    const card = document.createElement('div');
-    card.className = 'category-card';
-    card.onclick = () => openCategory(cat.id);
-    card.innerHTML = `
-      <div class="category-card-photo-wrap">
-        ${hasRealPhoto
-          ? `<img class="category-card-photo" src="${photoSrc}" alt="${escapeHtml(cat.name)}" loading="lazy"
-              onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'category-card-photo-placeholder',textContent:'📦'}))">`
-          : `<div class="category-card-photo-placeholder">📦</div>`}
-      </div>
-      <div class="category-card-body">
-        <div>
-          <div class="category-card-name">${escapeHtml(cat.name)}</div>
-          <div class="category-card-meta">${available} вкусов${total !== available ? ` · всего ${total}` : ''}</div>
-        </div>
-        <span class="category-card-arrow">›</span>
-      </div>
-    `;
-    grid.appendChild(card);
-  });
+  renderCategoryChips();
+  renderCatalog();
 }
 
 function openCategory(categoryId) {
-  state.selectedCategoryId = categoryId;
-  const cat = state.categories.find(c => c.id === categoryId);
-  document.getElementById('catalogTitle').textContent = cat ? cat.name : 'Waka line';
-  document.getElementById('catalogBackBtn').classList.remove('hidden');
-  document.getElementById('categoriesView').classList.add('hidden');
-  document.getElementById('catalog').classList.remove('hidden');
-  document.getElementById('catalogEmpty').classList.add('hidden');
-  renderCatalog();
+  setCatalogFilter(categoryId);
 }
 
 function backToCategories() {
@@ -848,43 +864,53 @@ function renderCatalog() {
   const empty = document.getElementById('catalogEmpty');
   const count = document.getElementById('catalogCount');
 
-  const categoryId = state.selectedCategoryId;
-  const categoryProducts = categoryId
-    ? state.products.filter(p => p.categoryId === categoryId)
-    : state.products;
-  const available = categoryProducts.filter(p => p.available);
+  const products = getFilteredCatalogProducts();
 
-  grid.className = 'catalog-grid flavors-list';
+  grid.className = 'catalog-grid';
   grid.innerHTML = '';
-  count.textContent = `${available.length} вкусов`;
 
-  if (categoryProducts.length === 0) {
+  if (count) {
+    count.textContent = `${products.length} товаров`;
+  }
+
+  if (products.length === 0) {
     empty.classList.remove('hidden');
+    const hasFilters = state.selectedCategoryId || (state.catalogSearchQuery || '').trim();
     empty.innerHTML = `
       <div class="empty-icon">📦</div>
-      <div>В этой позиции пока нет вкусов</div>`;
+      <div>${hasFilters ? 'Ничего не найдено' : 'Товары не найдены'}</div>`;
     return;
   }
   empty.classList.add('hidden');
 
-  categoryProducts.forEach((product) => {
-    const row = document.createElement('div');
-    row.className = `flavor-row${!product.available ? ' out-of-stock' : ''}`;
-    row.id = `productCard_${product.id}`;
+  products.forEach((product) => {
+    const photoSrc = normalizePhotoSrc(product.photo);
+    const discountPct = getProductDiscountPercent(product);
+    const inCart = state.cart.some(c => c.id === product.id);
+    const card = document.createElement('div');
+    card.className = `product-card${!product.available ? ' out-of-stock' : ''}${inCart ? ' in-cart' : ''}`;
+    card.id = `productCard_${product.id}`;
 
-    row.innerHTML = `
-      <div class="flavor-row-info">
-        <div class="flavor-row-name">${escapeHtml(product.description || product.name)}</div>
-        ${!product.available ? '<div class="category-card-meta">Нет в наличии</div>' : ''}
+    card.innerHTML = `
+      <div class="product-photo-wrap" onclick='previewImage(${JSON.stringify(photoSrc)})'>
+        <img class="product-photo" src="${photoSrc}" alt="${escapeHtml(product.name)}"
+          loading="lazy" onerror="this.src='/img/placeholder.svg'">
+        ${discountPct ? `<span class="product-badge product-badge-discount">−${discountPct}%</span>` : ''}
+        ${product.available
+          ? '<span class="product-badge product-badge-stock">В наличии</span>'
+          : '<div class="out-of-stock-overlay">Нет в наличии</div>'}
       </div>
-      <div class="flavor-row-prices">${formatProductPriceHtml(product)}</div>
+      <div class="product-info">
+        <div class="product-name">${escapeHtml(product.description || product.name)}</div>
+        <div class="product-price-row">${formatProductPriceHtml(product)}</div>
+      </div>
       <button class="btn-buy" type="button"
         ${!product.available ? 'disabled' : ''}
         onclick="openBuyModal(${product.id})">
         Купить
       </button>
     `;
-    grid.appendChild(row);
+    grid.appendChild(card);
   });
 }
 
@@ -1833,10 +1859,10 @@ async function saveCategoryName(id) {
     showToast('Позиция переименована ✓', 'success');
     await loadAdminProducts();
     if (state.selectedCategoryId === id) {
-      document.getElementById('catalogTitle').textContent = name;
+      renderCategoryChips();
     }
     if (!state.selectedCategoryId) showCategoriesView();
-    else if (state.selectedCategoryId) renderCatalog();
+    else renderCatalog();
   } catch (err) {
     showToast('Ошибка: ' + err.message, 'error');
   }
