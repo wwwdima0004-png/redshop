@@ -394,6 +394,68 @@ body {
   letter-spacing: -0.02em;
 }
 
+.wheel-prizes-card {
+  max-width: 300px;
+  margin: 20px auto 0;
+  padding: 18px 18px 16px;
+  text-align: left;
+  background: linear-gradient(145deg, #111 0%, #0a0a0a 100%);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 18px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+}
+
+.wheel-prizes-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--white);
+  margin: 0 0 14px;
+  letter-spacing: -0.01em;
+}
+
+.wheel-prizes-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.wheel-prize-row {
+  display: grid;
+  grid-template-columns: 62px 1fr 36px;
+  align-items: center;
+  gap: 10px;
+}
+
+.wheel-prize-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--white);
+  white-space: nowrap;
+}
+
+.wheel-prize-bar-track {
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.wheel-prize-bar-fill {
+  height: 100%;
+  min-width: 4px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #c41920 0%, #e31e24 50%, #ff4548 100%);
+  box-shadow: 0 0 8px rgba(227, 30, 36, 0.35);
+}
+
+.wheel-prize-pct {
+  font-size: 12px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.75);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
 .spin-cooldown-label {
   font-size: 13px;
   color: var(--grey);

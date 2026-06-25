@@ -1328,6 +1328,59 @@ const WHEEL_SEGMENTS = [
   { label: '500', prize: 500, fill: '#1a1a1a', fillLight: '#2e2e2e' }
 ];
 
+const WHEEL_PRIZE_CHANCES = [
+  { prize: 50, chance: 60 },
+  { prize: 100, chance: 25 },
+  { prize: 300, chance: 10 },
+  { prize: 500, chance: 5 }
+];
+
+const WHEEL_LOGICAL_SIZE = 320;
+
+function setupWheelCanvas(canvas) {
+  if (!canvas || canvas.dataset.dprReady) return;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  canvas.width = WHEEL_LOGICAL_SIZE * dpr;
+  canvas.height = WHEEL_LOGICAL_SIZE * dpr;
+  canvas.style.width = `${WHEEL_LOGICAL_SIZE}px`;
+  canvas.style.height = `${WHEEL_LOGICAL_SIZE}px`;
+  canvas.getContext('2d').setTransform(dpr, 0, 0, dpr, 0, 0);
+  canvas.dataset.dprReady = '1';
+}
+
+function drawCrispWheelText(ctx, text, x, y, { font, fill = '#ffffff', stroke = 'rgba(0,0,0,0.85)', lineWidth = 2.5 }) {
+  ctx.save();
+  ctx.font = font;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.shadowBlur = 0;
+  ctx.shadowColor = 'transparent';
+  ctx.shadowOffsetX = 0;
+  ctx.shadowOffsetY = 0;
+  ctx.lineJoin = 'round';
+  ctx.miterLimit = 2;
+  ctx.strokeStyle = stroke;
+  ctx.lineWidth = lineWidth;
+  ctx.strokeText(text, x, y);
+  ctx.fillStyle = fill;
+  ctx.fillText(text, x, y);
+  ctx.restore();
+}
+
+function renderWheelPrizesList() {
+  const list = document.getElementById('wheelPrizesList');
+  if (!list) return;
+  list.innerHTML = WHEEL_PRIZE_CHANCES.map(({ prize, chance }) => `
+    <div class="wheel-prize-row">
+      <span class="wheel-prize-label">${prize} сом</span>
+      <div class="wheel-prize-bar-track" aria-hidden="true">
+        <div class="wheel-prize-bar-fill" style="width:${chance}%"></div>
+      </div>
+      <span class="wheel-prize-pct">${chance}%</span>
+    </div>
+  `).join('');
+}
+
 function formatCountdown(ms) {
   const totalSec = Math.max(0, Math.ceil(ms / 1000));
   const h = Math.floor(totalSec / 3600);
@@ -1408,6 +1461,9 @@ async function refreshRouletteStatus() {
 }
 
 function initBonusWheel() {
+  const canvas = document.getElementById('wheelCanvas');
+  setupWheelCanvas(canvas);
+  renderWheelPrizesList();
   requestAnimationFrame(() => drawWheel(state.wheelRotation));
   renderLastWinBox();
   refreshRouletteStatus();
@@ -1442,9 +1498,10 @@ function renderLastWinBox() {
 function drawWheel(rotation, glowIntensity = 1) {
   const canvas = document.getElementById('wheelCanvas');
   if (!canvas) return;
+  setupWheelCanvas(canvas);
   const ctx = canvas.getContext('2d');
-  const W = canvas.width;
-  const H = canvas.height;
+  const W = WHEEL_LOGICAL_SIZE;
+  const H = WHEEL_LOGICAL_SIZE;
   const cx = W / 2;
   const cy = H / 2;
   const R = Math.min(cx, cy) - 16;
@@ -1494,19 +1551,14 @@ function drawWheel(rotation, glowIntensity = 1) {
     ctx.save();
     ctx.translate(tx, ty);
     ctx.rotate(midAngle + Math.PI / 2);
-    ctx.shadowColor = 'rgba(0,0,0,0.55)';
-    ctx.shadowBlur = 5;
-    ctx.shadowOffsetY = 1;
-    ctx.fillStyle = '#ffffff';
-    ctx.font = '800 30px Inter, Arial, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(seg.label, 0, -9);
-    ctx.shadowBlur = 3;
-    ctx.shadowOffsetY = 0;
-    ctx.font = '600 12px Inter, Arial, sans-serif';
-    ctx.fillStyle = 'rgba(255,255,255,0.92)';
-    ctx.fillText('сом', 0, 15);
+    drawCrispWheelText(ctx, seg.label, 0, -10, {
+      font: '800 32px Inter, Arial, sans-serif',
+      lineWidth: 3
+    });
+    drawCrispWheelText(ctx, 'сом', 0, 16, {
+      font: '700 11px Inter, Arial, sans-serif',
+      lineWidth: 2
+    });
     ctx.restore();
 
     startAngle += sectorAngle;
