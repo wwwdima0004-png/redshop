@@ -40,7 +40,7 @@ const state = {
   promoDiscount: 0,
   pendingFreeOrder: false,
   currentAppearance: 'dark',
-  currentAccent: 'red',
+  currentAccent: 'scarlet',
   banner: null
 };
 
@@ -57,12 +57,31 @@ const APPEARANCE_MODES = {
 };
 
 const ACCENT_COLORS = {
-  red: { name: 'Красный', desc: 'Фирменный акцент Red Shop', preview: '#e31e24' },
-  blue: { name: 'Синий', desc: 'Холодный неоновый синий', preview: '#2563eb' },
-  gold: { name: 'Obsidian Gold', desc: 'Глубокий золотой блеск', preview: '#c9a227' },
-  green: { name: 'Toxic Mint', desc: 'Яркий мятный неон', preview: '#2dd4a0' },
-  pink: { name: 'Cyber Pink', desc: 'Неоновый розовый акцент', preview: '#ff2d87' }
+  scarlet: { name: 'Алый', desc: 'Фирменный Red Shop', preview: '#e31e24' },
+  sapphire: { name: 'Сапфир', desc: 'Благородный синий', preview: '#1d4ed8' },
+  amethyst: { name: 'Аметист', desc: 'Глубокий фиолетовый', preview: '#7c3aed' },
+  platinum: { name: 'Платина', desc: 'Строгий минимализм', preview: '#64748b' }
 };
+
+const ACCENT_ALIASES = {
+  red: 'scarlet',
+  scarlet: 'scarlet',
+  blue: 'sapphire',
+  sapphire: 'sapphire',
+  purple: 'amethyst',
+  amethyst: 'amethyst',
+  pink: 'amethyst',
+  platinum: 'platinum',
+  grey: 'platinum',
+  gray: 'platinum',
+  gold: 'scarlet',
+  green: 'scarlet'
+};
+
+function normalizeAccentId(accent) {
+  if (ACCENT_COLORS[accent]) return accent;
+  return ACCENT_ALIASES[accent] || 'scarlet';
+}
 
 const APPEARANCE_STORAGE_KEY = 'redshop_appearance';
 const ACCENT_STORAGE_KEY = 'redshop_accent';
@@ -154,18 +173,16 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 function loadThemeSettings() {
   let appearance = 'dark';
-  let accent = 'red';
+  let accent = 'scarlet';
   try {
     appearance = localStorage.getItem(APPEARANCE_STORAGE_KEY) || 'dark';
     accent = localStorage.getItem(ACCENT_STORAGE_KEY);
     if (!accent) {
       const legacy = localStorage.getItem(LEGACY_THEME_KEY);
-      if (legacy === 'purple') accent = 'pink';
-      else if (legacy && ACCENT_COLORS[legacy]) accent = legacy;
-      else accent = 'red';
+      accent = legacy || 'scarlet';
     }
+    accent = normalizeAccentId(accent);
     if (!APPEARANCE_MODES[appearance]) appearance = 'dark';
-    if (!ACCENT_COLORS[accent]) accent = 'red';
   } catch {}
   return { appearance, accent };
 }
@@ -177,7 +194,7 @@ function initTheme() {
 
 function applyThemeSettings(appearance, accent, save = true) {
   if (!APPEARANCE_MODES[appearance]) appearance = 'dark';
-  if (!ACCENT_COLORS[accent]) accent = 'red';
+  accent = normalizeAccentId(accent);
   state.currentAppearance = appearance;
   state.currentAccent = accent;
   document.documentElement.setAttribute('data-accent', accent);

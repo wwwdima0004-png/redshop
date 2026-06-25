@@ -10,18 +10,21 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <script>
     (function () {
+      function normalizeAccent(a) {
+        var valid = ['scarlet', 'sapphire', 'amethyst', 'platinum'];
+        if (valid.indexOf(a) >= 0) return a;
+        var map = { red: 'scarlet', blue: 'sapphire', purple: 'amethyst', pink: 'amethyst', gold: 'scarlet', green: 'scarlet', grey: 'platinum', gray: 'platinum' };
+        return map[a] || 'scarlet';
+      }
       try {
         var appearance = localStorage.getItem('redshop_appearance') || 'dark';
         var accent = localStorage.getItem('redshop_accent');
-        if (!accent) {
-          var legacy = localStorage.getItem('redshop_theme') || 'red';
-          accent = legacy === 'purple' ? 'pink' : legacy;
-        }
-        if (['red', 'blue', 'gold', 'green', 'pink'].indexOf(accent) < 0) accent = 'red';
+        if (!accent) accent = localStorage.getItem('redshop_theme') || 'scarlet';
+        accent = normalizeAccent(accent);
         if (['dark', 'light'].indexOf(appearance) < 0) appearance = 'dark';
         document.documentElement.setAttribute('data-accent', accent);
       } catch (e) {
-        document.documentElement.setAttribute('data-accent', 'red');
+        document.documentElement.setAttribute('data-accent', 'scarlet');
       }
     })();
   </script>
@@ -29,19 +32,22 @@
 <body>
 <script>
   (function () {
+    function normalizeAccent(a) {
+      var valid = ['scarlet', 'sapphire', 'amethyst', 'platinum'];
+      if (valid.indexOf(a) >= 0) return a;
+      var map = { red: 'scarlet', blue: 'sapphire', purple: 'amethyst', pink: 'amethyst', gold: 'scarlet', green: 'scarlet', grey: 'platinum', gray: 'platinum' };
+      return map[a] || 'scarlet';
+    }
     try {
       var appearance = localStorage.getItem('redshop_appearance') || 'dark';
       var accent = localStorage.getItem('redshop_accent');
-      if (!accent) {
-        var legacy = localStorage.getItem('redshop_theme') || 'red';
-        accent = legacy === 'purple' ? 'pink' : legacy;
-      }
-      if (['red', 'blue', 'gold', 'green', 'pink'].indexOf(accent) < 0) accent = 'red';
+      if (!accent) accent = localStorage.getItem('redshop_theme') || 'scarlet';
+      accent = normalizeAccent(accent);
       if (['dark', 'light'].indexOf(appearance) < 0) appearance = 'dark';
       document.documentElement.setAttribute('data-accent', accent);
       document.body.setAttribute('data-appearance', appearance);
     } catch (e) {
-      document.documentElement.setAttribute('data-accent', 'red');
+      document.documentElement.setAttribute('data-accent', 'scarlet');
       document.body.setAttribute('data-appearance', 'dark');
     }
   })();
