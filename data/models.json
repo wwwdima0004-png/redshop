@@ -1,0 +1,20 @@
+[
+  {
+    "id": 1,
+    "brandId": 1,
+    "name": "Общая",
+    "photo": "/img/placeholder.svg"
+  },
+  {
+    "id": 2,
+    "brandId": 2,
+    "name": "Общая",
+    "photo": "/img/placeholder.svg"
+  },
+  {
+    "id": 3,
+    "brandId": 3,
+    "name": "Общая",
+    "photo": "/img/placeholder.svg"
+  }
+]

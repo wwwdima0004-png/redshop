@@ -617,6 +617,46 @@
         <div id="adminCategoriesList" class="admin-categories-list"></div>
       </div>
 
+      <!-- Models -->
+      <div class="card">
+        <h4>Модели</h4>
+        <form id="addModelForm" onsubmit="addModel(event)" enctype="multipart/form-data">
+          <div class="form-row">
+            <div class="form-group" style="flex:1">
+              <label>Бренд</label>
+              <select name="brandId" id="addModelBrand" class="form-input" required>
+                <option value="">Выберите бренд</option>
+              </select>
+            </div>
+            <div class="form-group" style="flex:1">
+              <label>Название модели</label>
+              <input type="text" id="addModelName" name="name" class="form-input" placeholder="Waka 10000" required>
+            </div>
+            <div class="form-group" style="flex:1">
+              <label>Метка (необяз.)</label>
+              <input type="text" name="badge" class="form-input" placeholder="NEW, HIT">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Фото модели</label>
+            <div class="file-upload-area" onclick="document.getElementById('addModelPhoto').click()">
+              <div id="addModelPhotoPreview" class="file-preview-icon">📷</div>
+              <span id="addModelPhotoName">Выберите фото (необяз.)</span>
+            </div>
+            <input type="file" id="addModelPhoto" name="photo" accept="image/*" style="display:none"
+              onchange="previewAddModelPhoto(this)">
+          </div>
+          <button type="submit" class="btn-primary">➕ Добавить модель</button>
+        </form>
+        <div class="form-group" style="margin-top:14px">
+          <label>Фильтр по бренду</label>
+          <select id="adminModelsFilterBrand" class="form-input" onchange="onAdminModelsFilterChange(this.value)">
+            <option value="">Все бренды</option>
+          </select>
+        </div>
+        <div id="adminModelsList" class="admin-categories-list"></div>
+      </div>
+
       <!-- Add product form -->
       <div class="card">
         <h4>Добавить вкус</h4>
@@ -627,9 +667,15 @@
               <input type="text" name="name" class="form-input" placeholder="Watermelon Ice" required>
             </div>
             <div class="form-group">
-              <label>Позиция</label>
-              <select name="categoryId" id="addProductCategory" class="form-input" required>
-                <option value="">Выберите позицию</option>
+              <label>Бренд</label>
+              <select name="categoryId" id="addProductBrand" class="form-input" required onchange="onAddProductBrandChange()">
+                <option value="">Выберите бренд</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Модель</label>
+              <select name="modelId" id="addProductModel" class="form-input" required>
+                <option value="">Сначала выберите бренд</option>
               </select>
             </div>
           </div>

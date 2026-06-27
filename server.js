@@ -77,8 +77,12 @@ function ensureDataFiles() {
   }
   if (needsDefaultCategories) writeJSON('categories.json', defaultCategories());
 
+  const modelsPath = path.join(DATA_DIR, 'models.json');
+  if (!fs.existsSync(modelsPath)) writeJSON('models.json', []);
+
   migrateProductsCategory();
   migrateProductsStock();
+  migrateProductsModels();
 
   if (!fs.existsSync(path.join(DATA_DIR, 'orders.json'))) writeJSON('orders.json', []);
   if (!fs.existsSync(path.join(DATA_DIR, 'users.json'))) writeJSON('users.json', []);
@@ -546,6 +550,76 @@ function migrateProductsCategory() {
   if (changed) writeJSON('products.json', products);
 }
 
+const DEFAULT_MODEL_NAME = 'Общая';
+
+function findDefaultModelForBrand(models, brandId) {
+  return models.find(m =>
+    Number(m.brandId) === Number(brandId) &&
+    m.name === DEFAULT_MODEL_NAME
+  );
+}
+
+function migrateProductsModels() {
+  const categories = readJSON('categories.json');
+  const products = readJSON('products.json');
+  if (!Array.isArray(categories)) return;
+
+  let models = readJSON('models.json');
+  if (!Array.isArray(models)) models = [];
+
+  let modelsChanged = false;
+  let productsChanged = false;
+
+  categories.forEach(cat => {
+    if (!findDefaultModelForBrand(models, cat.id)) {
+      const newId = models.length > 0 ? Math.max(...models.map(m => m.id)) + 1 : 1;
+      models.push({
+        id: newId,
+        brandId: cat.id,
+        name: DEFAULT_MODEL_NAME,
+        photo: cat.photo || '/img/placeholder.svg'
+      });
+      modelsChanged = true;
+    }
+  });
+
+  products.forEach(p => {
+    if (p.modelId) return;
+    const brandId = p.categoryId || categories[0]?.id;
+    const model = findDefaultModelForBrand(models, brandId);
+    if (!model) return;
+    p.modelId = model.id;
+    if (!p.categoryId) p.categoryId = model.brandId;
+    productsChanged = true;
+  });
+
+  if (modelsChanged) writeJSON('models.json', models);
+  if (productsChanged) writeJSON('products.json', products);
+}
+
+function resolveProductModelFields(body, categories, models) {
+  const modelsList = Array.isArray(models) ? models : readJSON('models.json');
+  const categoriesList = Array.isArray(categories) ? categories : readJSON('categories.json');
+  let categoryId = parseInt(body.categoryId, 10);
+  let modelId = parseInt(body.modelId, 10);
+
+  if (Number.isFinite(modelId) && modelId > 0) {
+    const model = modelsList.find(m => Number(m.id) === modelId);
+    if (!model) return { error: 'Модель не найдена' };
+    return { modelId: model.id, categoryId: model.brandId };
+  }
+
+  if (!Number.isFinite(categoryId) || !categoriesList.some(c => Number(c.id) === categoryId)) {
+    categoryId = categoriesList.length > 0 ? categoriesList[0].id : 1;
+  }
+
+  const defaultModel = findDefaultModelForBrand(modelsList, categoryId)
+    || modelsList.find(m => Number(m.brandId) === categoryId);
+  if (!defaultModel) return { error: 'Для бренда нет модели — создайте модель в админке' };
+
+  return { modelId: defaultModel.id, categoryId: defaultModel.brandId };
+}
+
 function validateOrderItems(rawItems) {
   if (!Array.isArray(rawItems) || rawItems.length === 0) {
     return { error: 'Корзина пуста', status: 400 };
@@ -838,7 +912,8 @@ const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, path.join(__dirname, 'public', 'uploads')),
   filename: (req, file, cb) => {
     const ext = path.extname(file.originalname).toLowerCase();
-    const prefix = req.originalUrl.includes('/categories') ? 'category' : 'product';
+    const prefix = req.originalUrl.includes('/models') ? 'model'
+      : req.originalUrl.includes('/categories') ? 'category' : 'product';
     cb(null, `${prefix}_${Date.now()}${ext}`);
   }
 });
@@ -955,6 +1030,20 @@ app.post('/api/categories', requireAdmin, upload.single('photo'), (req, res) => 
   if (badge) category.badge = badge;
   categories.push(category);
   writeJSON('categories.json', categories);
+
+  let models = readJSON('models.json');
+  if (!Array.isArray(models)) models = [];
+  if (!findDefaultModelForBrand(models, category.id)) {
+    const modelId = models.length > 0 ? Math.max(...models.map(m => m.id)) + 1 : 1;
+    models.push({
+      id: modelId,
+      brandId: category.id,
+      name: DEFAULT_MODEL_NAME,
+      photo: category.photo || '/img/placeholder.svg'
+    });
+    writeJSON('models.json', models);
+  }
+
   res.json(category);
 });
 
@@ -986,10 +1075,107 @@ app.delete('/api/categories/:id', requireAdmin, (req, res) => {
       error: `Нельзя удалить: в позиции ${inCategory.length} товар(ов). Сначала удалите или перенесите их.`
     });
   }
+  const models = readJSON('models.json');
+  const brandModels = models.filter(m => Number(m.brandId) === catId);
+  if (brandModels.length > 0) {
+    return res.status(400).json({
+      error: `Нельзя удалить: у бренда ${brandModels.length} модел(ей). Сначала удалите модели.`
+    });
+  }
   const categories = readJSON('categories.json');
   const filtered = categories.filter(c => c.id !== catId);
   if (filtered.length === categories.length) return res.status(404).json({ error: 'Позиция не найдена' });
   writeJSON('categories.json', filtered);
+  res.json({ ok: true });
+});
+
+// Models (public read)
+app.get('/api/models', (req, res) => {
+  let models = readJSON('models.json');
+  if (!Array.isArray(models)) models = [];
+  const brandId = req.query.brandId;
+  if (brandId !== undefined && brandId !== '') {
+    const id = parseInt(brandId, 10);
+    if (Number.isFinite(id)) {
+      models = models.filter(m => Number(m.brandId) === id);
+    }
+  }
+  res.json(models);
+});
+
+app.post('/api/models', requireAdmin, upload.single('photo'), (req, res) => {
+  const name = (req.body.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'Укажите название модели' });
+  const brandId = parseInt(req.body.brandId, 10);
+  const categories = readJSON('categories.json');
+  if (!Number.isFinite(brandId) || !categories.some(c => Number(c.id) === brandId)) {
+    return res.status(400).json({ error: 'Укажите корректный бренд' });
+  }
+  const models = readJSON('models.json');
+  const newId = models.length > 0 ? Math.max(...models.map(m => m.id)) + 1 : 1;
+  const model = {
+    id: newId,
+    brandId,
+    name,
+    photo: req.file ? `/uploads/${req.file.filename}` : '/img/placeholder.svg'
+  };
+  const badge = (req.body.badge || '').trim();
+  if (badge) model.badge = badge;
+  models.push(model);
+  writeJSON('models.json', models);
+  res.json(model);
+});
+
+app.put('/api/models/:id', requireAdmin, upload.single('photo'), (req, res) => {
+  const models = readJSON('models.json');
+  const categories = readJSON('categories.json');
+  const idx = models.findIndex(m => m.id === parseInt(req.params.id));
+  if (idx === -1) return res.status(404).json({ error: 'Модель не найдена' });
+
+  if (req.body.name !== undefined) {
+    const name = (req.body.name || '').trim();
+    if (!name) return res.status(400).json({ error: 'Укажите название модели' });
+    models[idx].name = name;
+  }
+  if (req.body.brandId !== undefined) {
+    const brandId = parseInt(req.body.brandId, 10);
+    if (!Number.isFinite(brandId) || !categories.some(c => Number(c.id) === brandId)) {
+      return res.status(400).json({ error: 'Укажите корректный бренд' });
+    }
+    models[idx].brandId = brandId;
+    const products = readJSON('products.json');
+    let productsChanged = false;
+    products.forEach(p => {
+      if (Number(p.modelId) === Number(models[idx].id) && Number(p.categoryId) !== brandId) {
+        p.categoryId = brandId;
+        productsChanged = true;
+      }
+    });
+    if (productsChanged) writeJSON('products.json', products);
+  }
+  if (req.body.badge !== undefined) {
+    const badge = (req.body.badge || '').trim();
+    if (badge) models[idx].badge = badge;
+    else delete models[idx].badge;
+  }
+  if (req.file) models[idx].photo = `/uploads/${req.file.filename}`;
+  writeJSON('models.json', models);
+  res.json(models[idx]);
+});
+
+app.delete('/api/models/:id', requireAdmin, (req, res) => {
+  const modelId = parseInt(req.params.id);
+  const products = readJSON('products.json');
+  const linked = products.filter(p => Number(p.modelId) === modelId);
+  if (linked.length > 0) {
+    return res.status(400).json({
+      error: `Нельзя удалить: к модели привязано ${linked.length} вкус(ов). Сначала удалите или перенесите их.`
+    });
+  }
+  const models = readJSON('models.json');
+  const filtered = models.filter(m => m.id !== modelId);
+  if (filtered.length === models.length) return res.status(404).json({ error: 'Модель не найдена' });
+  writeJSON('models.json', filtered);
   res.json({ ok: true });
 });
 
@@ -1002,17 +1188,19 @@ app.get('/api/products', (req, res) => {
 app.post('/api/products', requireAdmin, upload.single('photo'), (req, res) => {
   const products = readJSON('products.json');
   const categories = readJSON('categories.json');
+  const models = readJSON('models.json');
+  const resolved = resolveProductModelFields(req.body, categories, models);
+  if (resolved.error) return res.status(400).json({ error: resolved.error });
+
   const newId = products.length > 0 ? Math.max(...products.map(p => p.id)) + 1 : 1;
-  const defaultCatId = categories.length > 0 ? categories[0].id : 1;
-  let categoryId = parseInt(req.body.categoryId);
-  if (isNaN(categoryId) || !categories.some(c => c.id === categoryId)) categoryId = defaultCatId;
   const oldPriceRaw = req.body.oldPrice;
   const oldPrice = oldPriceRaw !== undefined && oldPriceRaw !== '' ? parseInt(oldPriceRaw) : null;
   const product = {
     id: newId,
     name: req.body.name,
     price: parseInt(req.body.price),
-    categoryId,
+    categoryId: resolved.categoryId,
+    modelId: resolved.modelId,
     photo: req.file ? `/uploads/${req.file.filename}` : '/img/placeholder.svg',
     available: true,
     sales: 0,
@@ -1029,6 +1217,7 @@ app.post('/api/products', requireAdmin, upload.single('photo'), (req, res) => {
 app.put('/api/products/:id', requireAdmin, upload.single('photo'), (req, res) => {
   const products = readJSON('products.json');
   const categories = readJSON('categories.json');
+  const models = readJSON('models.json');
   const idx = products.findIndex(p => p.id === parseInt(req.params.id));
   if (idx === -1) return res.status(404).json({ error: 'Товар не найден' });
 
@@ -1042,10 +1231,19 @@ app.put('/api/products/:id', requireAdmin, upload.single('photo'), (req, res) =>
     if (stock <= 0) products[idx].available = false;
     else if (req.body.available === undefined) products[idx].available = true;
   }
-  if (req.body.categoryId !== undefined) {
-    const categoryId = parseInt(req.body.categoryId);
+  if (req.body.modelId !== undefined) {
+    const modelId = parseInt(req.body.modelId, 10);
+    const model = models.find(m => Number(m.id) === modelId);
+    if (!model) return res.status(400).json({ error: 'Модель не найдена' });
+    products[idx].modelId = model.id;
+    products[idx].categoryId = model.brandId;
+  } else if (req.body.categoryId !== undefined) {
+    const categoryId = parseInt(req.body.categoryId, 10);
     if (!isNaN(categoryId) && categories.some(c => c.id === categoryId)) {
       products[idx].categoryId = categoryId;
+      const defaultModel = findDefaultModelForBrand(models, categoryId)
+        || models.find(m => Number(m.brandId) === categoryId);
+      if (defaultModel) products[idx].modelId = defaultModel.id;
     }
   }
   if (req.body.oldPrice !== undefined) {

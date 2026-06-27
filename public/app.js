@@ -15,6 +15,8 @@ if (tg) {
 const state = {
   products: [],
   categories: [],
+  models: [],
+  adminModelsFilterBrandId: '',
   selectedCategoryId: null,
   catalogSearchQuery: '',
   cart: [],        // [{id, name, price, photo, qty}]
@@ -852,6 +854,19 @@ function renderCatalogBanner() {
 function getCategoryName(categoryId) {
   const cat = state.categories.find(c => c.id === categoryId);
   return cat ? cat.name : '—';
+}
+
+function getModelName(modelId) {
+  const model = state.models.find(m => Number(m.id) === Number(modelId));
+  return model ? model.name : '—';
+}
+
+function getModelsByBrand(brandId) {
+  return state.models.filter(m => Number(m.brandId) === Number(brandId));
+}
+
+function getModelProductCount(modelId) {
+  return state.products.filter(p => Number(p.modelId) === Number(modelId)).length;
 }
 
 function getCategoryProductCount(categoryId) {
@@ -2376,24 +2391,69 @@ async function saveBannerSettings(e) {
 // ═══════════════════════════════════════════════════════════════
 
 function populateCategorySelects() {
-  const addSelect = document.getElementById('addProductCategory');
+  populateAddProductBrandSelect();
+  populateAddModelBrandSelect();
+  populateAdminModelsFilterSelect();
+}
+
+function populateAddProductBrandSelect() {
+  const addSelect = document.getElementById('addProductBrand');
   if (!addSelect) return;
   const current = addSelect.value;
-  addSelect.innerHTML = '<option value="">Выберите позицию</option>' +
+  addSelect.innerHTML = '<option value="">Выберите бренд</option>' +
+    state.categories.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
+  if (current) addSelect.value = current;
+  onAddProductBrandChange();
+}
+
+function populateAddModelBrandSelect() {
+  const addSelect = document.getElementById('addModelBrand');
+  if (!addSelect) return;
+  const current = addSelect.value;
+  addSelect.innerHTML = '<option value="">Выберите бренд</option>' +
     state.categories.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
   if (current) addSelect.value = current;
 }
 
+function populateAdminModelsFilterSelect() {
+  const filterSelect = document.getElementById('adminModelsFilterBrand');
+  if (!filterSelect) return;
+  const current = state.adminModelsFilterBrandId || filterSelect.value;
+  filterSelect.innerHTML = '<option value="">Все бренды</option>' +
+    state.categories.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
+  filterSelect.value = current || '';
+  state.adminModelsFilterBrandId = filterSelect.value;
+}
+
+function onAddProductBrandChange() {
+  const brandId = document.getElementById('addProductBrand')?.value;
+  const modelSelect = document.getElementById('addProductModel');
+  if (!modelSelect) return;
+  const models = brandId ? getModelsByBrand(brandId) : [];
+  modelSelect.innerHTML = models.length
+    ? '<option value="">Выберите модель</option>' +
+      models.map(m => `<option value="${m.id}">${escapeHtml(m.name)}</option>`).join('')
+    : '<option value="">Нет моделей — создайте модель</option>';
+}
+
+function onAdminModelsFilterChange(brandId) {
+  state.adminModelsFilterBrandId = brandId || '';
+  renderAdminModels();
+}
+
 async function loadAdminProducts() {
   try {
-    const [products, categories] = await Promise.all([
+    const [products, categories, models] = await Promise.all([
       api('GET', '/products'),
-      api('GET', '/categories')
+      api('GET', '/categories'),
+      api('GET', '/models')
     ]);
     state.products = products;
     state.categories = categories;
+    state.models = models;
     populateCategorySelects();
     renderAdminCategories();
+    renderAdminModels();
     renderAdminProducts();
     refreshShopView();
   } catch (err) {
@@ -2442,6 +2502,153 @@ function renderAdminCategories() {
     `;
     list.appendChild(item);
   });
+}
+
+function renderAdminModels() {
+  const list = document.getElementById('adminModelsList');
+  if (!list) return;
+  list.innerHTML = '';
+
+  let models = state.models;
+  if (state.adminModelsFilterBrandId) {
+    models = models.filter(m => Number(m.brandId) === Number(state.adminModelsFilterBrandId));
+  }
+
+  if (models.length === 0) {
+    list.innerHTML = '<div class="empty-state" style="padding:16px"><div>Нет моделей</div></div>';
+    return;
+  }
+
+  models.forEach(model => {
+    const count = getModelProductCount(model.id);
+    const photoSrc = normalizePhotoSrc(model.photo);
+    const item = document.createElement('div');
+    item.className = 'admin-category-item';
+    item.id = `adminModel_${model.id}`;
+    item.innerHTML = `
+      <img class="admin-category-photo" src="${photoSrc}" alt="${escapeHtml(model.name)}"
+        onclick="changeModelPhoto(${model.id})" title="Нажмите чтобы изменить фото"
+        onerror="this.src='/img/placeholder.svg'">
+      <div class="admin-category-name" id="modelNameDisplay_${model.id}">${escapeHtml(model.name)}</div>
+      <span class="admin-category-count">${escapeHtml(getCategoryName(model.brandId))} · ${count} вкус(ов)</span>
+      <div id="modelEditRow_${model.id}" class="inline-edit-row hidden">
+        <input type="text" class="form-input" id="modelNameInput_${model.id}" value="${escapeHtml(model.name)}">
+        <button class="btn-primary btn-sm" onclick="saveModelName(${model.id})">✓</button>
+        <button class="btn-sm btn-sm-grey" onclick="cancelModelEdit(${model.id})">✕</button>
+      </div>
+      <div class="form-group" style="margin-top:6px;flex:1 1 100%;min-width:140px">
+        <label style="font-size:11px;color:var(--grey)">Метка</label>
+        <div class="inline-edit-row" style="margin-top:4px">
+          <input type="text" class="form-input" id="modelBadgeInput_${model.id}"
+            value="${escapeHtml(model.badge || '')}" placeholder="NEW, HIT">
+          <button class="btn-primary btn-sm" onclick="saveModelBadge(${model.id})">✓</button>
+        </div>
+      </div>
+      <button class="btn-sm btn-sm-grey" onclick="changeModelPhoto(${model.id})">🖼 Фото</button>
+      <button class="btn-sm btn-sm-red" onclick="toggleModelEdit(${model.id})">✏️</button>
+      <button class="btn-sm btn-sm-red" onclick="deleteModel(${model.id})">🗑</button>
+    `;
+    list.appendChild(item);
+  });
+}
+
+async function addModel(e) {
+  e.preventDefault();
+  const form = e.target;
+  const name = form.elements['name']?.value?.trim();
+  const brandId = form.elements['brandId']?.value;
+  if (!name) { showToast('Введите название модели', 'error'); return; }
+  if (!brandId) { showToast('Выберите бренд', 'error'); return; }
+
+  const fd = new FormData();
+  fd.append('name', name);
+  fd.append('brandId', brandId);
+  const badge = form.elements['badge']?.value?.trim();
+  if (badge) fd.append('badge', badge);
+  const fileInput = document.getElementById('addModelPhoto');
+  if (fileInput?.files[0]) fd.append('photo', fileInput.files[0]);
+
+  try {
+    await adminFormFetch('POST', `${API}/models`, fd);
+    showToast(`Модель «${name}» добавлена ✓`, 'success');
+    form.reset();
+    if (fileInput) fileInput.value = '';
+    const preview = document.getElementById('addModelPhotoPreview');
+    const photoName = document.getElementById('addModelPhotoName');
+    if (preview) preview.textContent = '📷';
+    if (photoName) photoName.textContent = 'Выберите фото (необяз.)';
+    await loadAdminProducts();
+  } catch (err) {
+    showToast('Ошибка: ' + err.message, 'error');
+  }
+}
+
+function previewAddModelPhoto(input) {
+  if (!input.files[0]) return;
+  const name = input.files[0].name;
+  document.getElementById('addModelPhotoName').textContent =
+    name.length > 20 ? name.slice(0, 20) + '...' : name;
+  const reader = new FileReader();
+  reader.onload = e => {
+    document.getElementById('addModelPhotoPreview').innerHTML =
+      `<img src="${e.target.result}" style="width:36px;height:36px;object-fit:cover;border-radius:6px;">`;
+  };
+  reader.readAsDataURL(input.files[0]);
+}
+
+function toggleModelEdit(id) {
+  document.getElementById(`modelEditRow_${id}`)?.classList.toggle('hidden');
+  document.getElementById(`modelNameDisplay_${id}`)?.classList.toggle('hidden');
+}
+
+function cancelModelEdit(id) {
+  document.getElementById(`modelEditRow_${id}`)?.classList.add('hidden');
+  document.getElementById(`modelNameDisplay_${id}`)?.classList.remove('hidden');
+  const model = state.models.find(m => m.id === id);
+  const input = document.getElementById(`modelNameInput_${id}`);
+  if (model && input) input.value = model.name;
+}
+
+async function saveModelName(id) {
+  const input = document.getElementById(`modelNameInput_${id}`);
+  const name = input?.value.trim();
+  if (!name) { showToast('Введите название', 'error'); return; }
+  try {
+    await api('PUT', `/models/${id}`, { name }, true);
+    showToast('Модель переименована ✓', 'success');
+    await loadAdminProducts();
+  } catch (err) {
+    showToast(err.message || 'Ошибка', 'error');
+  }
+}
+
+async function saveModelBadge(id) {
+  const input = document.getElementById(`modelBadgeInput_${id}`);
+  const badge = input?.value?.trim() || '';
+  try {
+    await api('PUT', `/models/${id}`, { badge }, true);
+    showToast('Метка обновлена ✓', 'success');
+    await loadAdminProducts();
+  } catch (err) {
+    showToast(err.message || 'Ошибка', 'error');
+  }
+}
+
+async function deleteModel(id) {
+  const model = state.models.find(m => m.id === id);
+  const count = getModelProductCount(id);
+  if (count > 0) {
+    showToast(`Нельзя удалить «${model?.name}»: привязано ${count} вкус(ов)`, 'error');
+    return;
+  }
+  if (!confirm(`Удалить модель «${model?.name}»?`)) return;
+  try {
+    await api('DELETE', `/models/${id}`, null, true);
+    showToast('Модель удалена', 'success');
+    await loadAdminProducts();
+  } catch (err) {
+    showToast(err.message || 'Ошибка удаления', 'error');
+  }
 }
 
 async function addCategory(e) {
@@ -2574,6 +2781,7 @@ function renderAdminProducts() {
             ? `<span class="price-old">${product.oldPrice}</span> ${product.price} сом`
             : `${product.price} сом`}</span>
           <span class="status-pill available">${escapeHtml(getCategoryName(product.categoryId))}</span>
+          <span class="status-pill available">${escapeHtml(getModelName(product.modelId))}</span>
           <span class="admin-product-sales">Продано: ${product.sales || 0}</span>
           <span class="status-pill ${isProductPurchasable(product) ? 'available' : 'unavailable'}">
             ${isProductPurchasable(product) ? 'В наличии' : 'Нет в наличии'}
@@ -2589,10 +2797,18 @@ function renderAdminProducts() {
           </div>
         </div>
         <div class="form-group" style="margin-top:8px">
-          <label style="font-size:11px;color:var(--grey)">Позиция</label>
-          <select class="form-input" id="catSelect_${product.id}" onchange="changeProductCategory(${product.id}, this.value)">
+          <label style="font-size:11px;color:var(--grey)">Бренд</label>
+          <select class="form-input" id="brandSelect_${product.id}" onchange="changeProductBrand(${product.id}, this.value)">
             ${state.categories.map(c =>
               `<option value="${c.id}" ${c.id === product.categoryId ? 'selected' : ''}>${escapeHtml(c.name)}</option>`
+            ).join('')}
+          </select>
+        </div>
+        <div class="form-group" style="margin-top:8px">
+          <label style="font-size:11px;color:var(--grey)">Модель</label>
+          <select class="form-input" id="modelSelect_${product.id}" onchange="changeProductModel(${product.id}, this.value)">
+            ${getModelsByBrand(product.categoryId).map(m =>
+              `<option value="${m.id}" ${Number(m.id) === Number(product.modelId) ? 'selected' : ''}>${escapeHtml(m.name)}</option>`
             ).join('')}
           </select>
         </div>
@@ -2668,18 +2884,46 @@ async function savePrice(id) {
   }
 }
 
-async function changeProductCategory(id, categoryId) {
+async function changeProductBrand(id, brandId) {
+  const models = getModelsByBrand(brandId);
+  if (!models.length) {
+    showToast('У бренда нет моделей — создайте модель', 'error');
+    await loadAdminProducts();
+    return;
+  }
+  const product = state.products.find(p => p.id === id);
+  const keepModel = models.find(m => Number(m.id) === Number(product?.modelId));
+  const modelId = keepModel ? keepModel.id : models[0].id;
   try {
     const fd = new FormData();
-    fd.append('categoryId', parseInt(categoryId));
+    fd.append('categoryId', parseInt(brandId, 10));
+    fd.append('modelId', modelId);
     await adminFormFetch('PUT', `${API}/products/${id}`, fd);
-    showToast('Позиция товара обновлена ✓', 'success');
+    showToast('Бренд и модель обновлены ✓', 'success');
     await loadAdminProducts();
     if (state.selectedCategoryId) renderCatalog();
     else showCategoriesView();
   } catch {
-    showToast('Ошибка обновления позиции', 'error');
+    showToast('Ошибка обновления', 'error');
   }
+}
+
+async function changeProductModel(id, modelId) {
+  try {
+    const fd = new FormData();
+    fd.append('modelId', parseInt(modelId, 10));
+    await adminFormFetch('PUT', `${API}/products/${id}`, fd);
+    showToast('Модель обновлена ✓', 'success');
+    await loadAdminProducts();
+    if (state.selectedCategoryId) renderCatalog();
+    else showCategoriesView();
+  } catch {
+    showToast('Ошибка обновления модели', 'error');
+  }
+}
+
+async function changeProductCategory(id, categoryId) {
+  return changeProductBrand(id, categoryId);
 }
 
 // Hidden file input for product photo change
@@ -2736,6 +2980,32 @@ function changeCategoryPhoto(id) {
   categoryPhotoInput.click();
 }
 
+let photoChangeModelId = null;
+const modelPhotoInput = document.createElement('input');
+modelPhotoInput.type = 'file';
+modelPhotoInput.accept = 'image/*';
+modelPhotoInput.style.display = 'none';
+document.body.appendChild(modelPhotoInput);
+modelPhotoInput.addEventListener('change', async function() {
+  if (!this.files[0] || !photoChangeModelId) return;
+  const fd = new FormData();
+  fd.append('photo', this.files[0]);
+  try {
+    await adminFormFetch('PUT', `${API}/models/${photoChangeModelId}`, fd);
+    showToast('Фото модели обновлено ✓', 'success');
+    await loadAdminProducts();
+  } catch {
+    showToast('Ошибка загрузки фото', 'error');
+  }
+  this.value = '';
+  photoChangeModelId = null;
+});
+
+function changeModelPhoto(id) {
+  photoChangeModelId = id;
+  modelPhotoInput.click();
+}
+
 async function toggleAvailability(id) {
   const product = state.products.find(p => p.id === id);
   if (!product) return;
@@ -2770,14 +3040,17 @@ async function addProduct(e) {
   const name  = form.elements['name']?.value?.trim();
   const price = parseInt(form.elements['price']?.value);
   const categoryId = form.elements['categoryId']?.value;
+  const modelId = form.elements['modelId']?.value;
   if (!name)          { showToast('Введите название', 'error'); return; }
   if (!price || price < 1) { showToast('Введите цену', 'error'); return; }
-  if (!categoryId) { showToast('Выберите позицию', 'error'); return; }
+  if (!categoryId) { showToast('Выберите бренд', 'error'); return; }
+  if (!modelId) { showToast('Выберите модель', 'error'); return; }
 
   const fd = new FormData();
   fd.append('name',  name);
   fd.append('price', price);
   fd.append('categoryId', categoryId);
+  fd.append('modelId', modelId);
   fd.append('description', form.elements['description']?.value?.trim() || '');
   const oldPrice = form.elements['oldPrice']?.value?.trim();
   if (oldPrice) fd.append('oldPrice', oldPrice);
