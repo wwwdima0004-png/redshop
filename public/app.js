@@ -925,9 +925,9 @@ function getFilteredBrands() {
 
   cats = cats.filter(cat => {
     const models = getModelsByBrand(cat.id);
-    const hasModels = models.some(m => getProductsByModel(m.id).length > 0);
+    const hasAnyModels = models.length > 0;
     const hasLegacyProducts = getProductsByCategory(cat.id).length > 0;
-    if (!hasModels && !hasLegacyProducts) return false;
+    if (!hasAnyModels && !hasLegacyProducts) return false;
     if (!q) return true;
     if ((cat.name || '').toLowerCase().includes(q)) return true;
     return models.some(m => modelMatchesSearch(m, q));
@@ -948,18 +948,14 @@ function flavorMatchesSearch(product, q) {
 }
 
 function getFilteredBrandModels(brandId) {
-  let models = getModelsByBrand(brandId);
+  const models = getModelsByBrand(brandId);
   const q = (state.catalogSearchQuery || '').trim().toLowerCase();
-
-  if (!q) {
-    return models.filter(m => getProductsByModel(m.id).length > 0);
-  }
-
+  if (!q) return models;
   return models.filter(m => modelMatchesSearch(m, q));
 }
 
 function getBrandModelCount(brandId) {
-  return getModelsByBrand(brandId).filter(m => getProductsByModel(m.id).length > 0).length;
+  return getModelsByBrand(brandId).length;
 }
 
 function getModelInStock(modelId) {
@@ -1245,16 +1241,11 @@ function renderCatalog() {
 }
 
 function openBrandCatalog(brandId) {
-  const models = getFilteredBrandModels(brandId);
-  if (models.length === 1) {
-    openFlavorModal(models[0].id);
-    return;
-  }
   openModelModal(brandId);
 }
 
 function openModelModal(brandId) {
-  const cat = state.categories.find(c => c.id === brandId);
+  const cat = state.categories.find(c => Number(c.id) === Number(brandId));
   if (!cat) return;
 
   closeModal('flavorModal');
