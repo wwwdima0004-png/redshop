@@ -853,7 +853,7 @@ function renderCatalogBanner() {
 }
 
 function getCategoryName(categoryId) {
-  const cat = state.categories.find(c => c.id === categoryId);
+  const cat = state.categories.find(c => Number(c.id) === Number(categoryId));
   return cat ? cat.name : '—';
 }
 
@@ -947,15 +947,89 @@ function flavorMatchesSearch(product, q) {
     (product.description || '').toLowerCase().includes(q);
 }
 
+function getFilteredCatalogModels() {
+  let models = state.models.slice();
+  if (state.selectedCategoryId) {
+    models = models.filter(m => Number(m.brandId) === Number(state.selectedCategoryId));
+  }
+  const q = (state.catalogSearchQuery || '').trim().toLowerCase();
+  if (q) {
+    models = models.filter(m => modelMatchesSearch(m, q));
+  }
+  return models;
+}
+
+function getModelPriceInfo(modelId) {
+  const flavors = getProductsByModel(modelId);
+  const purchasable = flavors.filter(isProductPurchasable);
+  const list = purchasable.length ? purchasable : flavors;
+  if (!list.length) {
+    return { minPrice: null, oldPrice: null, discountPercent: 0, pricePrefix: '' };
+  }
+
+  let best = list[0];
+  let minPrice = Number(best.price) || 0;
+  list.forEach(p => {
+    const price = Number(p.price) || 0;
+    if (price < minPrice) {
+      minPrice = price;
+      best = p;
+    }
+  });
+
+  const oldPrice = Number(best.oldPrice);
+  const hasDiscount = oldPrice && oldPrice > minPrice;
+  let discountPercent = hasDiscount ? Math.round((1 - minPrice / oldPrice) * 100) : 0;
+  list.forEach(p => {
+    const d = getProductDiscountPercent(p);
+    if (d > discountPercent) discountPercent = d;
+  });
+
+  const uniquePrices = new Set(list.map(p => Number(p.price) || 0));
+  const pricePrefix = uniquePrices.size > 1 ? 'от ' : '';
+
+  return {
+    minPrice,
+    oldPrice: hasDiscount ? oldPrice : null,
+    discountPercent,
+    pricePrefix
+  };
+}
+
+function formatModelPriceHtml(info) {
+  if (info.minPrice == null) return '<span class="price-current">—</span>';
+  const current = `${info.pricePrefix}${info.minPrice} сом`;
+  if (info.oldPrice) {
+    return `<span class="price-old">${info.oldPrice} сом</span><span class="price-current">${current}</span>`;
+  }
+  return `<span class="price-current">${current}</span>`;
+}
+
+function getModelCardDescription(model) {
+  const brandName = getCategoryName(model.brandId);
+  const flavorCount = getProductsByModel(model.id).length;
+  if (flavorCount > 0) {
+    return `${brandName} · ${flavorCount} ${pluralFlavors(flavorCount)}`;
+  }
+  return brandName;
+}
+
+function getModelDisplayName(model) {
+  const name = (model.name || '').trim();
+  if (name && name.toLowerCase() !== 'общая') return name;
+  const brandName = getCategoryName(model.brandId);
+  return brandName !== '—' ? brandName : name || 'Модель';
+}
+
+function getBrandModelCount(brandId) {
+  return getModelsByBrand(brandId).length;
+}
+
 function getFilteredBrandModels(brandId) {
   const models = getModelsByBrand(brandId);
   const q = (state.catalogSearchQuery || '').trim().toLowerCase();
   if (!q) return models;
   return models.filter(m => modelMatchesSearch(m, q));
-}
-
-function getBrandModelCount(brandId) {
-  return getModelsByBrand(brandId).length;
 }
 
 function getModelInStock(modelId) {
@@ -1144,6 +1218,7 @@ function renderCategoryChips() {
   wrap.appendChild(allBtn);
 
   state.categories.forEach(cat => {
+    if (!getModelsByBrand(cat.id).length) return;
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = `catalog-chip${state.selectedCategoryId === cat.id ? ' active' : ''}`;
@@ -1186,56 +1261,76 @@ function renderCatalog() {
   const empty = document.getElementById('catalogEmpty');
   const count = document.getElementById('catalogCount');
 
-  const brands = getFilteredBrands();
+  const models = getFilteredCatalogModels();
 
-  grid.className = 'catalog-grid categories-grid';
+  grid.className = 'catalog-grid';
   grid.innerHTML = '';
 
-  const flavorTotal = brands.reduce((sum, cat) => sum + getProductsByCategory(cat.id).length, 0);
-  const modelTotal = brands.reduce((sum, cat) => sum + getBrandModelCount(cat.id), 0);
   if (count) {
-    count.textContent = brands.length
-      ? `${brands.length} бренд${brands.length === 1 ? '' : brands.length < 5 ? 'а' : 'ов'} · ${modelTotal} ${pluralModels(modelTotal)} · ${flavorTotal} ${pluralFlavors(flavorTotal)}`
-      : '0 брендов';
+    count.textContent = models.length
+      ? `${models.length} ${pluralModels(models.length)}`
+      : '0 моделей';
   }
 
-  if (brands.length === 0) {
+  if (models.length === 0) {
     empty.classList.remove('hidden');
     const hasFilters = state.selectedCategoryId || (state.catalogSearchQuery || '').trim();
     empty.innerHTML = `
       <div class="empty-icon">📦</div>
-      <div>${hasFilters ? 'Ничего не найдено' : 'Товары не найдены'}</div>`;
+      <div>${hasFilters ? 'Ничего не найдено' : 'Модели не найдены'}</div>`;
     return;
   }
   empty.classList.add('hidden');
 
-  brands.forEach(cat => {
-    const modelCount = getBrandModelCount(cat.id);
-    const inStock = getBrandInStockCount(cat.id);
-    const allOut = inStock === 0;
-    const flavors = getProductsByCategory(cat.id);
-    const photoSrc = normalizePhotoSrc(cat.photo || flavors[0]?.photo);
-    const priceLabel = getBrandPriceRange(cat.id) || '—';
+  models.forEach(model => {
+    const inStock = getModelInStock(model.id);
+    const photoSrc = normalizePhotoSrc(model.photo);
+    const priceInfo = getModelPriceInfo(model.id);
+    const displayName = getModelDisplayName(model);
+    const description = getModelCardDescription(model);
 
-    const card = document.createElement('div');
-    card.className = `category-card${allOut ? ' out-of-stock' : ''}`;
-    card.onclick = () => openBrandCatalog(cat.id);
-    card.innerHTML = `
-      <div class="category-card-photo-wrap">
-        <img class="category-card-photo" src="${photoSrc}" alt="${escapeHtml(cat.name)}"
-          loading="lazy" onerror="this.src='/img/placeholder.svg'">
-        ${cat.badge ? `<span class="category-card-badge">${escapeHtml(cat.badge)}</span>` : ''}
-        ${allOut ? '<div class="out-of-stock-overlay">Нет в наличии</div>' : ''}
-      </div>
-      <div class="category-card-body">
-        <div>
-          <div class="category-card-name">${escapeHtml(cat.name)}</div>
-          <div class="category-card-meta">${modelCount} ${pluralModels(modelCount)} · ${priceLabel}</div>
-          <div class="category-card-meta catalog-stock-status ${allOut ? 'unavailable' : 'available'}">${allOut ? 'Нет в наличии' : 'В наличии'}</div>
-        </div>
-        <div class="category-card-arrow">›</div>
-      </div>
+    const card = document.createElement('article');
+    card.className = `product-card model-catalog-card${inStock ? '' : ' out-of-stock'}`;
+
+    const photoWrap = document.createElement('div');
+    photoWrap.className = 'product-photo-wrap';
+    photoWrap.innerHTML = `
+      <img class="product-photo" src="${photoSrc}" alt="${escapeHtml(displayName)}"
+        loading="lazy" onerror="this.src='/img/placeholder.svg'">
+      ${priceInfo.discountPercent > 0
+        ? `<span class="product-badge product-badge-discount">−${priceInfo.discountPercent}%</span>`
+        : ''}
+      ${model.badge
+        ? `<span class="product-badge product-badge-model">${escapeHtml(model.badge)}</span>`
+        : ''}
+      <span class="product-badge product-badge-stock ${inStock ? '' : 'out'}">${inStock ? 'В наличии' : 'Нет в наличии'}</span>
+      ${!inStock ? '<div class="out-of-stock-overlay">Нет в наличии</div>' : ''}
+      <button type="button" class="btn-quick-buy" aria-label="Быстрая покупка" title="Выбрать вкус">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/>
+        </svg>
+      </button>
     `;
+    photoWrap.addEventListener('click', (e) => {
+      if (e.target.closest('.btn-quick-buy')) return;
+      openFlavorModal(model.id);
+    });
+    photoWrap.querySelector('.btn-quick-buy')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openFlavorModal(model.id);
+    });
+
+    const info = document.createElement('div');
+    info.className = 'product-info';
+    info.innerHTML = `
+      <div class="product-name">${escapeHtml(displayName)}</div>
+      <div class="product-desc">${escapeHtml(description)}</div>
+      <div class="product-price-row">${formatModelPriceHtml(priceInfo)}</div>
+    `;
+    info.addEventListener('click', () => openFlavorModal(model.id));
+
+    card.appendChild(photoWrap);
+    card.appendChild(info);
     grid.appendChild(card);
   });
 }
@@ -1330,9 +1425,7 @@ function openFlavorModal(modelId) {
 }
 
 function backToModelModal() {
-  const brandId = state.modelModalBrandId;
   closeModal('flavorModal');
-  if (brandId) openModelModal(brandId);
 }
 
 function renderFlavorModalGrid(flavors) {
