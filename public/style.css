@@ -1142,7 +1142,7 @@ a { color: inherit; text-decoration: none; }
 }
 
 .logo-red {
-  color: var(--accent);
+  color: #e31e24;
 }
 
 .logo-shop {
