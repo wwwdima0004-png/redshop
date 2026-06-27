@@ -379,11 +379,31 @@
   </div>
 </div>
 
+<!-- Model Selection Modal -->
+<div id="modelModal" class="modal-overlay hidden" onclick="closeOnOverlay(event, 'modelModal')">
+  <div class="modal modal-flavor">
+    <div class="modal-header">
+      <div class="modal-header-text">
+        <h2 id="modelModalTitle">Выберите модель</h2>
+        <p id="modelModalSubtitle" class="modal-subtitle"></p>
+      </div>
+      <button class="btn-close" onclick="closeModal('modelModal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="modelModalGrid" class="model-pick-grid"></div>
+    </div>
+  </div>
+</div>
+
 <!-- Flavor Selection Modal -->
 <div id="flavorModal" class="modal-overlay hidden" onclick="closeOnOverlay(event, 'flavorModal')">
   <div class="modal modal-flavor">
-    <div class="modal-header">
-      <h2 id="flavorModalTitle">Выберите вкус</h2>
+    <div class="modal-header modal-header-with-back">
+      <button type="button" class="modal-back-btn" id="flavorModalBackBtn" onclick="backToModelModal()">← Назад</button>
+      <div class="modal-header-text">
+        <h2 id="flavorModalTitle">Выберите вкус</h2>
+        <p id="flavorModalSubtitle" class="modal-subtitle"></p>
+      </div>
       <button class="btn-close" onclick="closeModal('flavorModal')">✕</button>
     </div>
     <div class="modal-body">

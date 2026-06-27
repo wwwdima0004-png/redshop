@@ -1785,6 +1785,119 @@ a { color: inherit; text-decoration: none; }
   overflow-y: auto;
 }
 
+.modal-header.modal-header-with-back {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: start;
+  gap: 8px;
+}
+
+.modal-header-text {
+  min-width: 0;
+}
+
+.modal-header-text h2 {
+  margin: 0;
+  line-height: 1.25;
+}
+
+.modal-subtitle {
+  font-size: 12px;
+  color: var(--grey);
+  margin-top: 4px;
+  line-height: 1.35;
+}
+
+.modal-back-btn {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.modal-back-btn:active { transform: scale(0.97); }
+
+.model-pick-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
+.model-pick-card {
+  position: relative;
+  background: var(--bg-card);
+  border: 2px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 10px 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s, transform 0.15s;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+}
+.model-pick-card:active { transform: scale(0.98); }
+.model-pick-card.out-of-stock { opacity: 0.72; }
+
+.model-pick-photo-wrap {
+  position: relative;
+  aspect-ratio: 16 / 10;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--bg-card-2);
+}
+
+.model-pick-photo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.model-pick-badge {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  z-index: 2;
+  background: var(--accent);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  padding: 3px 6px;
+  border-radius: 4px;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+
+.model-pick-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--white);
+  line-height: 1.25;
+}
+
+.model-pick-meta {
+  font-size: 11px;
+  color: var(--grey);
+}
+
+.model-pick-stock {
+  font-size: 10px;
+  color: var(--grey);
+}
+.model-pick-stock.in-stock {
+  color: var(--success);
+  font-weight: 600;
+}
+
 .flavor-modal-footer {
   display: flex;
   flex-direction: column;

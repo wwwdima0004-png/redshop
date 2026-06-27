@@ -44,7 +44,8 @@ const state = {
   currentAppearance: 'light',
   currentAccent: 'scarlet',
   banner: null,
-  flavorModalCategoryId: null,
+  flavorModalModelId: null,
+  modelModalBrandId: null,
   selectedFlavorId: null
 };
 
@@ -883,6 +884,10 @@ function isProductPurchasable(product) {
   return getProductStock(product) > 0;
 }
 
+function getProductsByModel(modelId) {
+  return state.products.filter(p => Number(p.modelId) === Number(modelId));
+}
+
 function getProductsByCategory(categoryId) {
   return state.products.filter(p => p.categoryId === categoryId);
 }
@@ -918,17 +923,65 @@ function getFilteredBrands() {
     cats = cats.filter(c => c.id === state.selectedCategoryId);
   }
 
-  if (q) {
-    cats = cats.filter(cat => {
-      if ((cat.name || '').toLowerCase().includes(q)) return true;
-      return getProductsByCategory(cat.id).some(p =>
-        (p.name || '').toLowerCase().includes(q) ||
-        (p.description || '').toLowerCase().includes(q)
-      );
-    });
+  cats = cats.filter(cat => {
+    const models = getModelsByBrand(cat.id);
+    const hasModels = models.some(m => getProductsByModel(m.id).length > 0);
+    const hasLegacyProducts = getProductsByCategory(cat.id).length > 0;
+    if (!hasModels && !hasLegacyProducts) return false;
+    if (!q) return true;
+    if ((cat.name || '').toLowerCase().includes(q)) return true;
+    return models.some(m => modelMatchesSearch(m, q));
+  });
+
+  return cats;
+}
+
+function modelMatchesSearch(model, q) {
+  if ((model.name || '').toLowerCase().includes(q)) return true;
+  if ((model.badge || '').toLowerCase().includes(q)) return true;
+  return getProductsByModel(model.id).some(p => flavorMatchesSearch(p, q));
+}
+
+function flavorMatchesSearch(product, q) {
+  return (product.name || '').toLowerCase().includes(q) ||
+    (product.description || '').toLowerCase().includes(q);
+}
+
+function getFilteredBrandModels(brandId) {
+  let models = getModelsByBrand(brandId);
+  const q = (state.catalogSearchQuery || '').trim().toLowerCase();
+
+  if (!q) {
+    return models.filter(m => getProductsByModel(m.id).length > 0);
   }
 
-  return cats.filter(cat => getProductsByCategory(cat.id).length > 0);
+  return models.filter(m => modelMatchesSearch(m, q));
+}
+
+function getBrandModelCount(brandId) {
+  return getModelsByBrand(brandId).filter(m => getProductsByModel(m.id).length > 0).length;
+}
+
+function getModelInStock(modelId) {
+  return getProductsByModel(modelId).some(isProductPurchasable);
+}
+
+function getModelPriceRange(modelId) {
+  const purchasable = getProductsByModel(modelId).filter(isProductPurchasable);
+  const list = purchasable.length ? purchasable : getProductsByModel(modelId);
+  if (!list.length) return null;
+  const prices = list.map(p => Number(p.price) || 0);
+  const min = Math.min(...prices);
+  const max = Math.max(...prices);
+  return min === max ? `${min} сом` : `от ${min} сом`;
+}
+
+function pluralModels(n) {
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return 'модель';
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return 'модели';
+  return 'моделей';
 }
 
 function getBrandPriceRange(categoryId) {
@@ -968,15 +1021,17 @@ async function initShop(attempt = 1) {
   }
 
   try {
-    const [products, categories] = await Promise.all([
+    const [products, categories, models] = await Promise.all([
       api('GET', '/products'),
-      api('GET', '/categories')
+      api('GET', '/categories'),
+      api('GET', '/models')
     ]);
     if (!Array.isArray(products) || !Array.isArray(categories)) {
       throw new Error('Сервер вернул неверный формат');
     }
     state.products = products;
     state.categories = categories;
+    state.models = Array.isArray(models) ? models : [];
     state.selectedCategoryId = null;
     state.catalogSearchQuery = '';
     const searchInput = document.getElementById('catalogSearch');
@@ -1007,12 +1062,14 @@ async function initShop(attempt = 1) {
 
 async function loadProducts(attempt = 1) {
   try {
-    const [products, categories] = await Promise.all([
+    const [products, categories, models] = await Promise.all([
       api('GET', '/products'),
-      api('GET', '/categories')
+      api('GET', '/categories'),
+      api('GET', '/models')
     ]);
     state.products = products;
     state.categories = categories;
+    state.models = Array.isArray(models) ? models : [];
     renderCategoryChips();
     if (state.selectedCategoryId) renderCatalog();
     else showCategoriesView();
@@ -1039,6 +1096,13 @@ function showCategoriesView() {
 function onCatalogSearch(value) {
   state.catalogSearchQuery = value;
   renderCatalog();
+  if (!document.getElementById('modelModal')?.classList.contains('hidden') && state.modelModalBrandId) {
+    renderModelModalGrid(getFilteredBrandModels(state.modelModalBrandId));
+  }
+  if (!document.getElementById('flavorModal')?.classList.contains('hidden') && state.flavorModalModelId) {
+    renderFlavorModalGrid(getFilteredModalFlavors(state.flavorModalModelId));
+    updateFlavorModalActions();
+  }
 }
 
 function setCatalogFilter(categoryId) {
@@ -1132,9 +1196,10 @@ function renderCatalog() {
   grid.innerHTML = '';
 
   const flavorTotal = brands.reduce((sum, cat) => sum + getProductsByCategory(cat.id).length, 0);
+  const modelTotal = brands.reduce((sum, cat) => sum + getBrandModelCount(cat.id), 0);
   if (count) {
     count.textContent = brands.length
-      ? `${brands.length} бренд${brands.length === 1 ? '' : brands.length < 5 ? 'а' : 'ов'} · ${flavorTotal} ${pluralFlavors(flavorTotal)}`
+      ? `${brands.length} бренд${brands.length === 1 ? '' : brands.length < 5 ? 'а' : 'ов'} · ${modelTotal} ${pluralModels(modelTotal)} · ${flavorTotal} ${pluralFlavors(flavorTotal)}`
       : '0 брендов';
   }
 
@@ -1149,15 +1214,16 @@ function renderCatalog() {
   empty.classList.add('hidden');
 
   brands.forEach(cat => {
-    const flavors = getProductsByCategory(cat.id);
+    const modelCount = getBrandModelCount(cat.id);
     const inStock = getBrandInStockCount(cat.id);
     const allOut = inStock === 0;
+    const flavors = getProductsByCategory(cat.id);
     const photoSrc = normalizePhotoSrc(cat.photo || flavors[0]?.photo);
     const priceLabel = getBrandPriceRange(cat.id) || '—';
 
     const card = document.createElement('div');
     card.className = `category-card${allOut ? ' out-of-stock' : ''}`;
-    card.onclick = () => openFlavorModal(cat.id);
+    card.onclick = () => openBrandCatalog(cat.id);
     card.innerHTML = `
       <div class="category-card-photo-wrap">
         <img class="category-card-photo" src="${photoSrc}" alt="${escapeHtml(cat.name)}"
@@ -1168,7 +1234,7 @@ function renderCatalog() {
       <div class="category-card-body">
         <div>
           <div class="category-card-name">${escapeHtml(cat.name)}</div>
-          <div class="category-card-meta">${flavors.length} ${pluralFlavors(flavors.length)} · ${priceLabel}</div>
+          <div class="category-card-meta">${modelCount} ${pluralModels(modelCount)} · ${priceLabel}</div>
           <div class="category-card-meta catalog-stock-status ${allOut ? 'unavailable' : 'available'}">${allOut ? 'Нет в наличии' : 'В наличии'}</div>
         </div>
         <div class="category-card-arrow">›</div>
@@ -1178,31 +1244,104 @@ function renderCatalog() {
   });
 }
 
-function getFilteredModalFlavors(categoryId) {
-  let flavors = getProductsByCategory(categoryId);
+function openBrandCatalog(brandId) {
+  const models = getFilteredBrandModels(brandId);
+  if (models.length === 1) {
+    openFlavorModal(models[0].id);
+    return;
+  }
+  openModelModal(brandId);
+}
+
+function openModelModal(brandId) {
+  const cat = state.categories.find(c => c.id === brandId);
+  if (!cat) return;
+
+  closeModal('flavorModal');
+  state.modelModalBrandId = brandId;
+
+  const titleEl = document.getElementById('modelModalTitle');
+  const subtitleEl = document.getElementById('modelModalSubtitle');
+  if (titleEl) titleEl.textContent = 'Выберите модель';
+  if (subtitleEl) subtitleEl.textContent = cat.name;
+
+  renderModelModalGrid(getFilteredBrandModels(brandId));
+  openModal('modelModal');
+}
+
+function renderModelModalGrid(models) {
+  const grid = document.getElementById('modelModalGrid');
+  if (!grid) return;
+  grid.innerHTML = '';
+
+  if (models.length === 0) {
+    grid.innerHTML = '<div class="empty-state"><div class="empty-icon">📦</div><div>Модели не найдены</div></div>';
+    return;
+  }
+
+  models.forEach(model => {
+    const inStock = getModelInStock(model.id);
+    const photoSrc = normalizePhotoSrc(model.photo);
+    const priceLabel = getModelPriceRange(model.id) || '—';
+    const card = document.createElement('button');
+    card.type = 'button';
+    card.className = `model-pick-card${!inStock ? ' out-of-stock' : ''}`;
+    card.onclick = () => openFlavorModal(model.id);
+    card.innerHTML = `
+      <div class="model-pick-photo-wrap">
+        <img class="model-pick-photo" src="${photoSrc}" alt="${escapeHtml(model.name)}"
+          loading="lazy" onerror="this.src='/img/placeholder.svg'">
+        ${model.badge ? `<span class="model-pick-badge">${escapeHtml(model.badge)}</span>` : ''}
+      </div>
+      <span class="model-pick-name">${escapeHtml(model.name)}</span>
+      <span class="model-pick-meta">${priceLabel}</span>
+      <span class="model-pick-stock ${inStock ? 'in-stock' : 'out-of-stock-label'}">${inStock ? 'В наличии' : 'Нет в наличии'}</span>
+    `;
+    grid.appendChild(card);
+  });
+}
+
+function getFilteredModalFlavors(modelId) {
+  let flavors = getProductsByModel(modelId);
+  if (!flavors.length) {
+    const model = state.models.find(m => Number(m.id) === Number(modelId));
+    if (model) {
+      flavors = getProductsByCategory(model.brandId).filter(p => !p.modelId || Number(p.modelId) === Number(modelId));
+    }
+  }
   const q = (state.catalogSearchQuery || '').trim().toLowerCase();
   if (q) {
-    flavors = flavors.filter(p =>
-      (p.name || '').toLowerCase().includes(q) ||
-      (p.description || '').toLowerCase().includes(q)
-    );
+    flavors = flavors.filter(p => flavorMatchesSearch(p, q));
   }
   return flavors;
 }
 
-function openFlavorModal(categoryId) {
-  const cat = state.categories.find(c => c.id === categoryId);
-  if (!cat) return;
+function openFlavorModal(modelId) {
+  const model = state.models.find(m => Number(m.id) === Number(modelId));
+  if (!model) return;
 
-  state.flavorModalCategoryId = categoryId;
-  const flavors = getFilteredModalFlavors(categoryId);
+  closeModal('modelModal');
+  state.flavorModalModelId = modelId;
+  state.modelModalBrandId = model.brandId;
+
+  const flavors = getFilteredModalFlavors(modelId);
   const firstPurchasable = flavors.find(isProductPurchasable);
   state.selectedFlavorId = firstPurchasable ? firstPurchasable.id : (flavors[0]?.id || null);
 
-  document.getElementById('flavorModalTitle').textContent = cat.name;
+  const brand = state.categories.find(c => c.id === model.brandId);
+  document.getElementById('flavorModalTitle').textContent = model.name;
+  const subtitleEl = document.getElementById('flavorModalSubtitle');
+  if (subtitleEl) subtitleEl.textContent = brand ? brand.name : '';
+
   renderFlavorModalGrid(flavors);
   updateFlavorModalActions();
   openModal('flavorModal');
+}
+
+function backToModelModal() {
+  const brandId = state.modelModalBrandId;
+  closeModal('flavorModal');
+  if (brandId) openModelModal(brandId);
 }
 
 function renderFlavorModalGrid(flavors) {
@@ -1234,7 +1373,7 @@ function renderFlavorModalGrid(flavors) {
 
 function selectFlavor(productId) {
   state.selectedFlavorId = productId;
-  renderFlavorModalGrid(getFilteredModalFlavors(state.flavorModalCategoryId));
+  renderFlavorModalGrid(getFilteredModalFlavors(state.flavorModalModelId));
   updateFlavorModalActions();
 }
 
