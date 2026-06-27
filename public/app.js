@@ -2589,7 +2589,7 @@ async function loadAdminProducts() {
     ]);
     state.products = products;
     state.categories = categories;
-    state.models = models;
+    state.models = Array.isArray(models) ? models : [];
     populateCategorySelects();
     renderAdminCategories();
     renderAdminModels();
@@ -2694,10 +2694,15 @@ function renderAdminModels() {
 async function addModel(e) {
   e.preventDefault();
   const form = e.target;
-  const name = form.elements['name']?.value?.trim();
-  const brandId = form.elements['brandId']?.value;
+  const name = document.getElementById('addModelName')?.value?.trim()
+    || form.elements['modelName']?.value?.trim();
+  const brandId = document.getElementById('addModelBrand')?.value
+    || form.elements['brandId']?.value;
   if (!name) { showToast('Введите название модели', 'error'); return; }
   if (!brandId) { showToast('Выберите бренд', 'error'); return; }
+
+  const btn = form.querySelector('button[type="submit"]');
+  if (btn) { btn.disabled = true; btn.textContent = 'Сохранение...'; }
 
   const fd = new FormData();
   fd.append('name', name);
@@ -2716,9 +2721,12 @@ async function addModel(e) {
     const photoName = document.getElementById('addModelPhotoName');
     if (preview) preview.textContent = '📷';
     if (photoName) photoName.textContent = 'Выберите фото (необяз.)';
+    state.adminModelsFilterBrandId = String(brandId);
     await loadAdminProducts();
   } catch (err) {
     showToast('Ошибка: ' + err.message, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '➕ Добавить модель'; }
   }
 }
 
