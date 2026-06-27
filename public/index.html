@@ -17,11 +17,11 @@
         return map[a] || 'scarlet';
       }
       try {
-        var appearance = localStorage.getItem('redshop_appearance') || 'dark';
+        var appearance = localStorage.getItem('redshop_appearance') || 'light';
         var accent = localStorage.getItem('redshop_accent');
         if (!accent) accent = localStorage.getItem('redshop_theme') || 'scarlet';
         accent = normalizeAccent(accent);
-        if (['dark', 'light'].indexOf(appearance) < 0) appearance = 'dark';
+        if (['dark', 'light'].indexOf(appearance) < 0) appearance = 'light';
         document.documentElement.setAttribute('data-accent', accent);
       } catch (e) {
         document.documentElement.setAttribute('data-accent', 'scarlet');
@@ -39,16 +39,16 @@
       return map[a] || 'scarlet';
     }
     try {
-      var appearance = localStorage.getItem('redshop_appearance') || 'dark';
+      var appearance = localStorage.getItem('redshop_appearance') || 'light';
       var accent = localStorage.getItem('redshop_accent');
       if (!accent) accent = localStorage.getItem('redshop_theme') || 'scarlet';
       accent = normalizeAccent(accent);
-      if (['dark', 'light'].indexOf(appearance) < 0) appearance = 'dark';
+      if (['dark', 'light'].indexOf(appearance) < 0) appearance = 'light';
       document.documentElement.setAttribute('data-accent', accent);
       document.body.setAttribute('data-appearance', appearance);
     } catch (e) {
       document.documentElement.setAttribute('data-accent', 'scarlet');
-      document.body.setAttribute('data-appearance', 'dark');
+      document.body.setAttribute('data-appearance', 'light');
     }
   })();
 </script>
@@ -111,15 +111,18 @@
   <!-- Header -->
   <header class="header">
     <div class="header-logo">
-      <img src="/img/logo.svg" alt="Red Shop" class="logo-icon">
       <div class="logo-text">
-        <span class="logo-name">Red Shop</span>
+        <span class="logo-name"><span class="logo-red">Red</span> <span class="logo-shop">Shop</span></span>
         <span class="logo-sub">Original Devices</span>
       </div>
     </div>
     <div class="header-actions">
-      <button class="btn-icon" onclick="openCart()" id="cartBtn" title="Корзина">
-        <span class="cart-icon">🛒</span>
+      <button class="btn-icon" onclick="openCart()" id="cartBtn" title="Корзина" aria-label="Корзина">
+        <svg class="cart-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4H6z"/>
+          <path d="M3 6h18"/>
+          <path d="M16 10a4 4 0 0 1-8 0"/>
+        </svg>
         <span class="cart-badge hidden" id="cartBadge">0</span>
       </button>
       <button class="btn-icon admin-btn hidden" onclick="openAdminPanel()" title="Админ" id="adminBtn">⚙️</button>
@@ -546,9 +549,8 @@
   <!-- Admin Header -->
   <header class="header admin-header">
     <div class="header-logo">
-      <img src="/img/logo.svg" alt="Red Shop" class="logo-icon">
       <div class="logo-text">
-        <span class="logo-name">Red Shop</span>
+        <span class="logo-name"><span class="logo-red">Red</span> <span class="logo-shop">Shop</span></span>
         <span class="logo-sub admin-badge">Admin Panel</span>
       </div>
     </div>

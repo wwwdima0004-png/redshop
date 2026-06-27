@@ -39,7 +39,7 @@ const state = {
   referralLink: '',
   promoDiscount: 0,
   pendingFreeOrder: false,
-  currentAppearance: 'dark',
+  currentAppearance: 'light',
   currentAccent: 'scarlet',
   banner: null,
   flavorModalCategoryId: null,
@@ -213,17 +213,17 @@ function scheduleCartSync() {
 }
 
 function loadThemeSettings() {
-  let appearance = 'dark';
+  let appearance = 'light';
   let accent = 'scarlet';
   try {
-    appearance = localStorage.getItem(APPEARANCE_STORAGE_KEY) || 'dark';
+    appearance = localStorage.getItem(APPEARANCE_STORAGE_KEY) || 'light';
     accent = localStorage.getItem(ACCENT_STORAGE_KEY);
     if (!accent) {
       const legacy = localStorage.getItem(LEGACY_THEME_KEY);
       accent = legacy || 'scarlet';
     }
     accent = normalizeAccentId(accent);
-    if (!APPEARANCE_MODES[appearance]) appearance = 'dark';
+    if (!APPEARANCE_MODES[appearance]) appearance = 'light';
   } catch {}
   return { appearance, accent };
 }
@@ -234,7 +234,7 @@ function initTheme() {
 }
 
 function applyThemeSettings(appearance, accent, save = true) {
-  if (!APPEARANCE_MODES[appearance]) appearance = 'dark';
+  if (!APPEARANCE_MODES[appearance]) appearance = 'light';
   accent = normalizeAccentId(accent);
   state.currentAppearance = appearance;
   state.currentAccent = accent;
@@ -248,7 +248,7 @@ function applyThemeSettings(appearance, accent, save = true) {
     } catch {}
   }
   if (tg?.setHeaderColor) {
-    const c = appearance === 'light' ? '#f4f4f5' : '#0a0a0a';
+    const c = appearance === 'light' ? '#fff8f8' : '#0a0a0a';
     try { tg.setHeaderColor(c); tg.setBackgroundColor(c); } catch {}
   }
   renderThemeOptions();

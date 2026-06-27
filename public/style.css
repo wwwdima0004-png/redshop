@@ -42,6 +42,12 @@
   --bg-card-tint: #1a1010;
   --wheel-sector-dark: #1a1a1a;
   --wheel-sector-dark-light: #2e2e2e;
+  --logo-shop-color: #ffffff;
+  --chip-bg: var(--bg-card);
+  --chip-color: var(--grey);
+  --chip-border: var(--border);
+  --chip-active-bg: var(--accent);
+  --chip-active-color: #ffffff;
 }
 
 html[data-accent="scarlet"] {
@@ -79,26 +85,32 @@ body[data-appearance="light"] {
   --white: var(--text-primary);
   --grey: var(--text-secondary);
   --grey-dark: var(--text-muted);
-  --bg: #f4f4f5;
+  --logo-shop-color: #1a1a1a;
+  --bg: #faf6f6;
   --bg-2: #ffffff;
   --bg-card: #ffffff;
-  --bg-card-2: #f1f3f5;
-  --bg-base: #eef0f2;
-  --bg-page: #f8f9fa;
-  --bg-card-tint: #ffffff;
-  --border: #e2e5ea;
-  --gradient-mid: #f0f1f3;
-  --gradient-dark: #e8eaed;
+  --bg-card-2: #f8f2f2;
+  --bg-base: #fff5f5;
+  --bg-page: #fffafa;
+  --bg-card-tint: #fff0f0;
+  --border: #eadede;
+  --gradient-mid: #fff0f0;
+  --gradient-dark: #ffe8e8;
   --shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
-  --glow-top: color-mix(in srgb, var(--accent) 12%, transparent);
-  --glow-bottom-left: color-mix(in srgb, var(--accent) 8%, transparent);
-  --glow-bottom-right: color-mix(in srgb, var(--accent-deep) 10%, transparent);
+  --glow-top: color-mix(in srgb, var(--accent) 24%, transparent);
+  --glow-bottom-left: color-mix(in srgb, var(--accent) 14%, transparent);
+  --glow-bottom-right: color-mix(in srgb, var(--accent-deep) 16%, transparent);
+  --chip-bg: #ffffff;
+  --chip-color: #4b5563;
+  --chip-border: #d8d0d0;
+  --chip-active-bg: var(--accent);
+  --chip-active-color: #ffffff;
 }
 
 body[data-appearance="light"] #shopView,
 body[data-appearance="light"] #bonusView,
 body[data-appearance="light"] #profileView {
-  background: var(--bg-page);
+  background: transparent;
 }
 
 body[data-appearance="light"] .bottom-nav {
@@ -108,7 +120,7 @@ body[data-appearance="light"] .bottom-nav {
 }
 
 body[data-appearance="light"] .header {
-  background: rgba(248, 249, 250, 0.92);
+  background: rgba(255, 250, 250, 0.92);
 }
 
 body[data-appearance="light"] .product-card {
@@ -118,7 +130,6 @@ body[data-appearance="light"] .product-card {
 }
 
 body[data-appearance="light"] .catalog-search-input,
-body[data-appearance="light"] .catalog-chip,
 body[data-appearance="light"] #catalogEmpty,
 body[data-appearance="light"] .bonus-screen .spin-cooldown,
 body[data-appearance="light"] .bonus-last-win,
@@ -167,12 +178,19 @@ body[data-appearance="light"] .product-card:hover {
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
 }
 
-body[data-appearance="light"] .catalog-chip {
-  color: var(--text-secondary);
-}
-
-body[data-appearance="light"] .catalog-chip.active {
-  color: var(--on-accent);
+body[data-appearance="light"] #shopView::before {
+  background-image:
+    radial-gradient(ellipse 130% 80% at 50% -5%, var(--glow-top) 0%, transparent 58%),
+    radial-gradient(ellipse 90% 55% at 100% 85%, var(--glow-bottom-right) 0%, transparent 52%),
+    radial-gradient(ellipse 70% 45% at 0% 55%, var(--glow-bottom-left) 0%, transparent 48%),
+    repeating-linear-gradient(
+      -45deg,
+      transparent,
+      transparent 36px,
+      color-mix(in srgb, var(--accent) 4%, transparent) 36px,
+      color-mix(in srgb, var(--accent) 4%, transparent) 37px
+    ),
+    linear-gradient(168deg, var(--bg-page) 0%, var(--gradient-mid) 32%, var(--gradient-dark) 58%, var(--bg-base) 100%);
 }
 
 body[data-appearance="light"] #bonusView::before,
@@ -210,7 +228,7 @@ body {
   position: relative;
   min-height: 100vh;
   isolation: isolate;
-  background: var(--bg-page);
+  background: transparent;
 }
 
 .stub-screen {
@@ -1107,23 +1125,28 @@ a { color: inherit; text-decoration: none; }
 .header-logo {
   display: flex;
   align-items: center;
-  gap: 10px;
 }
 
-.logo-icon {
-  width: 38px;
-  height: 38px;
-  border-radius: 50%;
-  flex-shrink: 0;
+.logo-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.1;
 }
 
 .logo-name {
   display: block;
   font-size: 18px;
   font-weight: 800;
-  color: var(--accent);
   letter-spacing: -0.5px;
-  line-height: 1;
+  line-height: 1.1;
+}
+
+.logo-red {
+  color: var(--accent);
+}
+
+.logo-shop {
+  color: var(--logo-shop-color);
 }
 
 .logo-sub {
@@ -1166,6 +1189,13 @@ a { color: inherit; text-decoration: none; }
   transition: background 0.2s, border-color 0.2s;
 }
 .btn-icon:hover { background: var(--bg-card-2); border-color: var(--grey-dark); }
+
+.cart-icon-svg {
+  width: 20px;
+  height: 20px;
+  display: block;
+  flex-shrink: 0;
+}
 
 .btn-primary {
   background: var(--accent);
@@ -1454,9 +1484,9 @@ a { color: inherit; text-decoration: none; }
   flex-shrink: 0;
   padding: 9px 17px;
   border-radius: 999px;
-  border: 1px solid var(--border);
-  background: var(--bg-card);
-  color: var(--grey);
+  border: 1px solid var(--chip-border);
+  background: var(--chip-bg);
+  color: var(--chip-color);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
@@ -1465,9 +1495,9 @@ a { color: inherit; text-decoration: none; }
 }
 .catalog-chip:active { transform: scale(0.97); }
 .catalog-chip.active {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--on-accent);
+  background: var(--chip-active-bg);
+  border-color: var(--chip-active-bg);
+  color: var(--chip-active-color);
   box-shadow: 0 4px 16px color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
@@ -3387,7 +3417,8 @@ a { color: inherit; text-decoration: none; }
 }
 
 .appearance-preview-light {
-  background: linear-gradient(135deg, #ffffff 0%, #f0f0f0 100%);
+  background: linear-gradient(168deg, #fffafa 0%, #fff0f0 45%, #ffe8e8 100%);
+  border: 1px solid #eadede;
 }
 
 .theme-card-name,
