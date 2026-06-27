@@ -1208,7 +1208,8 @@ function renderFlavorModalGrid(flavors) {
     card.onclick = () => selectFlavor(product.id);
     card.innerHTML = `
       <span class="flavor-pick-emoji">${getFlavorEmoji(product)}</span>
-      <span class="flavor-pick-name">${escapeHtml(product.description || product.name)}</span>
+      <span class="flavor-pick-name">${escapeHtml(product.name)}</span>
+      ${product.description ? `<span class="flavor-pick-desc">${escapeHtml(product.description)}</span>` : ''}
       <span class="flavor-pick-stock ${purchasable ? 'in-stock' : 'out-of-stock-label'}">${purchasable ? 'В наличии' : 'Нет в наличии'}</span>
       ${selected ? '<span class="flavor-pick-check">✓</span>' : ''}
     `;
@@ -1345,7 +1346,8 @@ function openBuyModal(productId) {
   const summary = document.getElementById('buyOrderSummary');
   summary.innerHTML = `
     <div><strong>${escapeHtml(categoryName)}</strong></div>
-    <div class="buy-summary-row">${escapeHtml(product.description || product.name)}</div>
+    <div class="buy-summary-row buy-summary-flavor">${escapeHtml(product.name)}</div>
+    ${product.description ? `<div class="buy-summary-row buy-summary-desc">${escapeHtml(product.description)}</div>` : ''}
     <div class="buy-summary-row">${formatProductPriceHtml(product)}</div>
   `;
 
@@ -1476,7 +1478,8 @@ function renderCartItems() {
       <img class="cart-item-photo" src="${item.photo}" alt="${item.name}"
         onerror="this.src='/img/placeholder.svg'">
       <div class="cart-item-info">
-        <div class="cart-item-name">${escapeHtml(item.description || item.name)}</div>
+        <div class="cart-item-name">${escapeHtml(item.name)}</div>
+        ${item.description ? `<div class="cart-item-desc">${escapeHtml(item.description)}</div>` : ''}
         <div class="cart-item-price">${item.price * item.qty} сом</div>
       </div>
       <div class="cart-item-qty">
