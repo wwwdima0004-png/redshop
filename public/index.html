@@ -349,31 +349,32 @@
 
 <!-- ═══════════════════ MODALS ═══════════════════ -->
 
-<!-- Age gate 18+ -->
+<!-- Age gate -->
 <div id="ageGateModal" class="age-gate-overlay hidden" aria-modal="true" role="dialog">
   <div class="age-gate-modal">
-    <h2 class="age-gate-title">Важные условия покупки — подтвердите перед входом в магазин</h2>
+    <h2 class="age-gate-title">👋 Добро пожаловать!</h2>
+    <p class="age-gate-subtitle">Перед входом в магазин, пожалуйста, ознакомьтесь с основными условиями покупки.</p>
     <div class="age-gate-cards">
       <div class="age-gate-card">
-        <div class="age-gate-card-title">Возврата денег нет</div>
-        <div class="age-gate-card-text">После покупки возврат не производится</div>
+        <div class="age-gate-card-title">Гарантия 2 дня</div>
+        <div class="age-gate-card-text">Обмен возможен в течение 2 дней только при подтверждении заводского брака и наличии полной комплектации (коробка и пакетик).</div>
       </div>
       <div class="age-gate-card">
-        <div class="age-gate-card-title">Замена только при браке</div>
-        <div class="age-gate-card-text">Замена возможна только при подтверждённом браке товара</div>
+        <div class="age-gate-card-title">Возврат денежных средств</div>
+        <div class="age-gate-card-text">Возврат товара и денежных средств после покупки не осуществляется.</div>
       </div>
       <div class="age-gate-card">
-        <div class="age-gate-card-title">Покупка только от 18+</div>
-        <div class="age-gate-card-text">Нажимая «Хорошо», вы подтверждаете, что вам есть 18 лет</div>
+        <div class="age-gate-card-title">Только для лиц 21+</div>
+        <div class="age-gate-card-text">Нажимая кнопку «Хорошо», вы подтверждаете, что достигли возраста 21 года и ознакомились с условиями покупки.</div>
       </div>
     </div>
     <div class="age-gate-footer">
-      <label class="age-gate-dont-show">
-        <input type="checkbox" id="ageGateDontShow">
+      <label class="age-gate-accept">
+        <input type="checkbox" id="ageGateAccept" onchange="onAgeGateAcceptChange()">
         <span class="age-gate-check"></span>
-        <span class="age-gate-dont-show-text">Не показывать снова</span>
+        <span class="age-gate-accept-text">Я принимаю условия покупки ⭐</span>
       </label>
-      <button type="button" class="btn-primary btn-full" onclick="confirmAgeGate()">Хорошо</button>
+      <button type="button" class="btn-primary btn-full" id="ageGateOkBtn" onclick="confirmAgeGate()" disabled>Хорошо</button>
     </div>
   </div>
 </div>
@@ -596,6 +597,10 @@
             <div class="form-group" style="flex:1">
               <label>Название позиции</label>
               <input type="text" id="addCategoryName" name="name" class="form-input" placeholder="Например: Waka" required>
+            </div>
+            <div class="form-group" style="flex:1">
+              <label>Метка (необяз.)</label>
+              <input type="text" name="badge" class="form-input" placeholder="NEW, HIT, СКИДКА">
             </div>
           </div>
           <div class="form-group">

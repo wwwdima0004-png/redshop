@@ -951,6 +951,8 @@ app.post('/api/categories', requireAdmin, upload.single('photo'), (req, res) => 
     name,
     photo: req.file ? `/uploads/${req.file.filename}` : '/img/placeholder.svg'
   };
+  const badge = (req.body.badge || '').trim();
+  if (badge) category.badge = badge;
   categories.push(category);
   writeJSON('categories.json', categories);
   res.json(category);
@@ -964,6 +966,11 @@ app.put('/api/categories/:id', requireAdmin, upload.single('photo'), (req, res) 
     const name = (req.body.name || '').trim();
     if (!name) return res.status(400).json({ error: 'Укажите название позиции' });
     categories[idx].name = name;
+  }
+  if (req.body.badge !== undefined) {
+    const badge = (req.body.badge || '').trim();
+    if (badge) categories[idx].badge = badge;
+    else delete categories[idx].badge;
   }
   if (req.file) categories[idx].photo = `/uploads/${req.file.filename}`;
   writeJSON('categories.json', categories);

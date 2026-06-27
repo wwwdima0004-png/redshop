@@ -88,7 +88,6 @@ function normalizeAccentId(accent) {
 const APPEARANCE_STORAGE_KEY = 'redshop_appearance';
 const ACCENT_STORAGE_KEY = 'redshop_accent';
 const LEGACY_THEME_KEY = 'redshop_theme';
-const AGE_GATE_SKIP_KEY = 'redshop_age_skip';
 const LAST_WIN_KEY = 'redshop_last_win';
 
 // ─── API ─────────────────────────────────────────────────────────────────────
@@ -311,22 +310,22 @@ function closeThemesScreen() {
 function initAgeGate() {
   const modal = document.getElementById('ageGateModal');
   if (!modal) return;
-  let skip = false;
-  try { skip = localStorage.getItem(AGE_GATE_SKIP_KEY) === '1'; } catch {}
-  if (skip) {
-    modal.classList.add('hidden');
-  } else {
-    modal.classList.remove('hidden');
-    const cb = document.getElementById('ageGateDontShow');
-    if (cb) cb.checked = false;
-  }
+  modal.classList.remove('hidden');
+  const cb = document.getElementById('ageGateAccept');
+  const btn = document.getElementById('ageGateOkBtn');
+  if (cb) cb.checked = false;
+  if (btn) btn.disabled = true;
+}
+
+function onAgeGateAcceptChange() {
+  const cb = document.getElementById('ageGateAccept');
+  const btn = document.getElementById('ageGateOkBtn');
+  if (btn) btn.disabled = !cb?.checked;
 }
 
 function confirmAgeGate() {
-  const dontShow = document.getElementById('ageGateDontShow')?.checked;
-  if (dontShow) {
-    try { localStorage.setItem(AGE_GATE_SKIP_KEY, '1'); } catch {}
-  }
+  const accepted = document.getElementById('ageGateAccept')?.checked;
+  if (!accepted) return;
   document.getElementById('ageGateModal')?.classList.add('hidden');
 }
 
@@ -1148,13 +1147,14 @@ function renderCatalog() {
       <div class="category-card-photo-wrap">
         <img class="category-card-photo" src="${photoSrc}" alt="${escapeHtml(cat.name)}"
           loading="lazy" onerror="this.src='/img/placeholder.svg'">
+        ${cat.badge ? `<span class="category-card-badge">${escapeHtml(cat.badge)}</span>` : ''}
         ${allOut ? '<div class="out-of-stock-overlay">Нет в наличии</div>' : ''}
       </div>
       <div class="category-card-body">
         <div>
           <div class="category-card-name">${escapeHtml(cat.name)}</div>
           <div class="category-card-meta">${flavors.length} ${pluralFlavors(flavors.length)} · ${priceLabel}</div>
-          <div class="category-card-meta">${inStock > 0 ? `${inStock} в наличии` : 'Нет в наличии'}</div>
+          <div class="category-card-meta catalog-stock-status ${allOut ? 'unavailable' : 'available'}">${allOut ? 'Нет в наличии' : 'В наличии'}</div>
         </div>
         <div class="category-card-arrow">›</div>
       </div>
@@ -1200,7 +1200,6 @@ function renderFlavorModalGrid(flavors) {
   }
 
   flavors.forEach(product => {
-    const stock = getProductStock(product);
     const purchasable = isProductPurchasable(product);
     const selected = state.selectedFlavorId === product.id;
     const card = document.createElement('button');
@@ -1210,7 +1209,7 @@ function renderFlavorModalGrid(flavors) {
     card.innerHTML = `
       <span class="flavor-pick-emoji">${getFlavorEmoji(product)}</span>
       <span class="flavor-pick-name">${escapeHtml(product.description || product.name)}</span>
-      <span class="flavor-pick-stock">${purchasable ? `${stock} шт` : 'Нет в наличии'}</span>
+      <span class="flavor-pick-stock ${purchasable ? 'in-stock' : 'out-of-stock-label'}">${purchasable ? 'В наличии' : 'Нет в наличии'}</span>
       ${selected ? '<span class="flavor-pick-check">✓</span>' : ''}
     `;
     grid.appendChild(card);
@@ -1245,7 +1244,7 @@ function addSelectedFlavorToCart() {
   const existing = state.cart.find(c => c.id === productId);
   if (existing) {
     if (existing.qty >= stock) {
-      showToast(`Максимум ${stock} шт`, 'error');
+      showToast('Нельзя добавить больше', 'error');
       return;
     }
     existing.qty += 1;
@@ -1294,7 +1293,7 @@ function changeQty(productId, delta) {
   const stock = getProductStock(product);
 
   if (delta > 0 && item.qty >= stock) {
-    showToast(`Максимум ${stock} шт`, 'error');
+    showToast('Нельзя добавить больше', 'error');
     return;
   }
 
@@ -2426,6 +2425,14 @@ function renderAdminCategories() {
         <button class="btn-primary btn-sm" onclick="saveCategoryName(${cat.id})">✓</button>
         <button class="btn-sm btn-sm-grey" onclick="cancelCategoryEdit(${cat.id})">✕</button>
       </div>
+      <div class="form-group" style="margin-top:6px;flex:1 1 100%;min-width:140px">
+        <label style="font-size:11px;color:var(--grey)">Метка</label>
+        <div class="inline-edit-row" style="margin-top:4px">
+          <input type="text" class="form-input" id="catBadgeInput_${cat.id}"
+            value="${escapeHtml(cat.badge || '')}" placeholder="NEW, HIT, СКИДКА">
+          <button class="btn-primary btn-sm" onclick="saveCategoryBadge(${cat.id})">✓</button>
+        </div>
+      </div>
       <button class="btn-sm btn-sm-grey" onclick="changeCategoryPhoto(${cat.id})">🖼 Фото</button>
       <button class="btn-sm btn-sm-red" onclick="toggleCategoryEdit(${cat.id})">✏️</button>
       <button class="btn-sm btn-sm-red" onclick="deleteCategory(${cat.id})">🗑</button>
@@ -2442,6 +2449,8 @@ async function addCategory(e) {
 
   const fd = new FormData();
   fd.append('name', name);
+  const badge = form.elements['badge']?.value?.trim();
+  if (badge) fd.append('badge', badge);
   const fileInput = document.getElementById('addCategoryPhoto');
   if (fileInput?.files[0]) fd.append('photo', fileInput.files[0]);
 
@@ -2496,13 +2505,24 @@ async function saveCategoryName(id) {
     await api('PUT', `/categories/${id}`, { name }, true);
     showToast('Позиция переименована ✓', 'success');
     await loadAdminProducts();
-    if (state.selectedCategoryId === id) {
-      renderCategoryChips();
-    }
-    if (!state.selectedCategoryId) showCategoriesView();
-    else renderCatalog();
+    if (state.selectedCategoryId) renderCatalog();
+    else showCategoriesView();
   } catch (err) {
-    showToast('Ошибка: ' + err.message, 'error');
+    showToast(err.message || 'Ошибка', 'error');
+  }
+}
+
+async function saveCategoryBadge(id) {
+  const input = document.getElementById(`catBadgeInput_${id}`);
+  const badge = input?.value?.trim() || '';
+  try {
+    await api('PUT', `/categories/${id}`, { badge }, true);
+    showToast('Метка обновлена ✓', 'success');
+    await loadAdminProducts();
+    if (state.selectedCategoryId) renderCatalog();
+    else showCategoriesView();
+  } catch (err) {
+    showToast(err.message || 'Ошибка', 'error');
   }
 }
 
