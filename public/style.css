@@ -43,6 +43,9 @@
   --wheel-sector-dark: #1a1a1a;
   --wheel-sector-dark-light: #2e2e2e;
   --logo-shop-color: #ffffff;
+  --bottom-nav-inner: 64px;
+  --bottom-nav-safe: max(12px, env(safe-area-inset-bottom, 0px));
+  --bottom-nav-offset: calc(var(--bottom-nav-inner) + var(--bottom-nav-safe));
   --chip-bg: var(--bg-card);
   --chip-color: var(--grey);
   --chip-border: var(--border);
@@ -221,7 +224,7 @@ body {
 /* ─── Main tab views & bottom nav ─────────────────────────────────────────── */
 .main-tab-view {
   min-height: 100vh;
-  padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+  padding-bottom: var(--bottom-nav-offset);
 }
 
 #shopView {
@@ -235,7 +238,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: calc(100vh - 64px - env(safe-area-inset-bottom, 0px));
+  min-height: calc(100vh - var(--bottom-nav-offset));
   padding: 24px 16px;
 }
 
@@ -255,8 +258,9 @@ body {
   display: flex;
   align-items: stretch;
   justify-content: space-around;
-  height: calc(56px + env(safe-area-inset-bottom, 0px));
-  padding-bottom: env(safe-area-inset-bottom, 0px);
+  min-height: var(--bottom-nav-offset);
+  padding-top: 10px;
+  padding-bottom: var(--bottom-nav-safe);
   background: var(--bg-2);
   border-top: 1px solid var(--border);
   box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.45);
@@ -268,10 +272,11 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: 5px;
   background: transparent;
   color: var(--grey);
-  padding: 6px 4px;
+  padding: 8px 4px 6px;
+  min-height: var(--bottom-nav-inner);
   transition: color 0.2s ease;
   -webkit-tap-highlight-color: transparent;
 }
@@ -285,13 +290,13 @@ body {
 }
 
 .bottom-nav-icon {
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   flex-shrink: 0;
 }
 
 .bottom-nav-label {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   line-height: 1;
 }
@@ -319,7 +324,7 @@ body {
   z-index: 1;
   max-width: 420px;
   margin: 0 auto;
-  padding: 24px 20px 32px;
+  padding: 24px 20px calc(var(--bottom-nav-offset) + 16px);
   text-align: center;
 }
 
@@ -1556,7 +1561,7 @@ a { color: inherit; text-decoration: none; }
 }
 
 #catalogEmpty {
-  margin: 8px 16px 100px;
+  margin: 8px 16px calc(var(--bottom-nav-offset) + 12px);
   padding: 32px 20px;
   border-radius: 14px;
   background: var(--bg-card);
@@ -1611,7 +1616,7 @@ a { color: inherit; text-decoration: none; }
   display: grid;
   grid-template-columns: 1fr;
   gap: 16px;
-  padding: 8px 16px 100px;
+  padding: 8px 16px calc(var(--bottom-nav-offset) + 12px);
 }
 
 .category-card {
@@ -2042,7 +2047,7 @@ a { color: inherit; text-decoration: none; }
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 14px;
-  padding: 0 16px 100px;
+  padding: 0 16px calc(var(--bottom-nav-offset) + 12px);
 }
 
 /* ─── Product Card ───────────────────────────────────────────────────────────── */
@@ -2354,7 +2359,7 @@ a { color: inherit; text-decoration: none; }
 /* ─── Sticky Cart ────────────────────────────────────────────────────────────── */
 .sticky-cart {
   position: fixed;
-  bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+  bottom: calc(var(--bottom-nav-offset) + 10px);
   left: 16px;
   right: 16px;
   background: var(--accent);

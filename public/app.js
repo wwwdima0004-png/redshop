@@ -2032,10 +2032,10 @@ function openBotChat() {
 // ═══════════════════════════════════════════════════════════════
 
 const WHEEL_PRIZE_CHANCES = [
-  { prize: 50, chance: 60 },
-  { prize: 100, chance: 25 },
-  { prize: 300, chance: 10 },
-  { prize: 500, chance: 5 }
+  { prize: 20, chance: 60 },
+  { prize: 50, chance: 25 },
+  { prize: 150, chance: 10 },
+  { prize: 300, chance: 5 }
 ];
 
 const WHEEL_LOGICAL_SIZE = 320;
@@ -2064,12 +2064,12 @@ function getWheelSegments() {
   const fillLight = getCssVar('--accent-light', '#ff4d52');
   const dark = getCssVar('--wheel-sector-dark', '#1a1a1a');
   const darkLight = getCssVar('--wheel-sector-dark-light', '#2e2e2e');
-  return [
-    { label: '50', prize: 50, fill, fillLight },
-    { label: '100', prize: 100, fill: dark, fillLight: darkLight },
-    { label: '300', prize: 300, fill, fillLight },
-    { label: '500', prize: 500, fill: dark, fillLight: darkLight }
-  ];
+  return WHEEL_PRIZE_CHANCES.map(({ prize }, i) => ({
+    label: String(prize),
+    prize,
+    fill: i % 2 === 0 ? fill : dark,
+    fillLight: i % 2 === 0 ? fillLight : darkLight
+  }));
 }
 
 function getAccentSparkleColors() {
@@ -2440,7 +2440,7 @@ async function spinWheel() {
       const resultIcon = document.getElementById('spinResultIcon');
       const resultSub = document.getElementById('spinResultSub');
       if (resultBox && resultText) {
-        const emojis = { 50: '🎉', 100: '🎊', 300: '✨', 500: '🏆' };
+        const emojis = { 20: '🎉', 50: '🎊', 150: '✨', 300: '🏆' };
         if (resultIcon) resultIcon.textContent = emojis[prize] || '🎉';
         resultText.textContent = `Вы выиграли ${prize} сом`;
         if (resultSub) resultSub.textContent = 'Приз зачислен на баланс';

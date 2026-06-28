@@ -124,7 +124,7 @@ function readBanner() {
 const REFERRAL_BONUS = 30;
 const BOT_USERNAME = 'Red1shopbot';
 const ROULETTE_COOLDOWN_MS = 24 * 60 * 60 * 1000;
-const ROULETTE_SECTORS = [50, 100, 300, 500];
+const ROULETTE_SECTORS = [20, 50, 150, 300];
 const NOTIFICATION_TZ = process.env.NOTIFICATION_TZ || 'Asia/Bishkek';
 const NOTIFICATION_CHECK_MS = 12 * 60 * 1000;
 const CART_REMINDER_1_MS = 60 * 60 * 1000;
@@ -147,10 +147,10 @@ function getRouletteStatus(user) {
 
 function pickRoulettePrize() {
   const r = Math.random() * 100;
-  if (r < 60) return { prize: 50, sectorIndex: 0 };
-  if (r < 85) return { prize: 100, sectorIndex: 1 };
-  if (r < 95) return { prize: 300, sectorIndex: 2 };
-  return { prize: 500, sectorIndex: 3 };
+  if (r < 60) return { prize: 20, sectorIndex: 0 };
+  if (r < 85) return { prize: 50, sectorIndex: 1 };
+  if (r < 95) return { prize: 150, sectorIndex: 2 };
+  return { prize: 300, sectorIndex: 3 };
 }
 
 function migrateUsersReferrer() {
