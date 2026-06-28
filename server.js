@@ -94,6 +94,30 @@ function ensureDataFiles() {
 
   if (!fs.existsSync(path.join(DATA_DIR, 'promocodes.json'))) writeJSON('promocodes.json', []);
   if (!fs.existsSync(path.join(DATA_DIR, 'banner.json'))) writeJSON('banner.json', defaultBanner());
+  if (!fs.existsSync(path.join(DATA_DIR, 'settings.json'))) writeJSON('settings.json', defaultSettings());
+}
+
+function defaultSettings() {
+  return { referralBonus: 30 };
+}
+
+function readSettings() {
+  const fp = path.join(DATA_DIR, 'settings.json');
+  if (!fs.existsSync(fp)) return defaultSettings();
+  try {
+    const parsed = JSON.parse(fs.readFileSync(fp, 'utf8'));
+    if (!parsed || typeof parsed !== 'object') return defaultSettings();
+    const bonus = parseInt(parsed.referralBonus, 10);
+    return {
+      referralBonus: Number.isFinite(bonus) && bonus >= 0 ? bonus : defaultSettings().referralBonus
+    };
+  } catch {
+    return defaultSettings();
+  }
+}
+
+function getReferralBonus() {
+  return readSettings().referralBonus;
 }
 
 function defaultBanner() {
@@ -121,7 +145,6 @@ function readBanner() {
   return result;
 }
 
-const REFERRAL_BONUS = 30;
 const BOT_USERNAME = 'Red1shopbot';
 const ROULETTE_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 const ROULETTE_SECTORS = [20, 50, 150, 300];
@@ -511,8 +534,9 @@ function processReferral(userId, referrerId) {
 
   user.referrerId = referrerId;
   writeJSON('users.json', users);
-  addBalance(userId, REFERRAL_BONUS);
-  addBalance(referrerId, REFERRAL_BONUS);
+  const bonus = getReferralBonus();
+  addBalance(userId, bonus);
+  addBalance(referrerId, bonus);
   return true;
 }
 
@@ -1022,6 +1046,21 @@ app.put('/api/banner', requireAdmin, upload.single('bgImage'), (req, res) => {
   res.json(banner);
 });
 
+app.get('/api/settings', (req, res) => {
+  res.json(readSettings());
+});
+
+app.put('/api/settings', requireAdmin, (req, res) => {
+  const current = readSettings();
+  const bonus = parseInt(req.body?.referralBonus, 10);
+  if (!Number.isFinite(bonus) || bonus < 0) {
+    return res.status(400).json({ error: 'Укажите корректную сумму бонуса (0 или больше)' });
+  }
+  const settings = { ...current, referralBonus: bonus };
+  writeJSON('settings.json', settings);
+  res.json(settings);
+});
+
 // Categories (public read)
 app.get('/api/categories', (req, res) => {
   res.json(readJSON('categories.json'));
@@ -1375,7 +1414,7 @@ app.get('/api/referrals/my', (req, res) => {
   res.json({
     count: countReferrals(verifiedUserId),
     link: `https://t.me/${BOT_USERNAME}?start=ref_${verifiedUserId}`,
-    bonus: REFERRAL_BONUS
+    bonus: getReferralBonus()
   });
 });
 
@@ -1831,8 +1870,9 @@ async function initBot(retryCount = 0) {
         if (referrerId && isNewUser) {
           const applied = processReferral(userId, referrerId);
           if (applied && bot) {
-            bot.sendMessage(chatId, `🎉 Реферальный бонус: +${REFERRAL_BONUS} сом на ваш баланс!`).catch(() => {});
-            bot.sendMessage(referrerId, `👥 По вашей ссылке пришёл новый пользователь! +${REFERRAL_BONUS} сом на баланс.`).catch(() => {});
+            const bonus = getReferralBonus();
+            bot.sendMessage(chatId, `🎉 Реферальный бонус: +${bonus} сом на ваш баланс!`).catch(() => {});
+            bot.sendMessage(referrerId, `👥 По вашей ссылке пришёл новый пользователь! +${bonus} сом на баланс.`).catch(() => {});
           } else if (isNewUser && referrerId && Number(referrerId) === Number(userId)) {
             // self-referral — ignore silently
           }

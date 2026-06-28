@@ -39,6 +39,7 @@ const state = {
   buyUseBalance: false,
   referralCount: 0,
   referralLink: '',
+  referralBonus: 30,
   promoDiscount: 0,
   pendingFreeOrder: false,
   currentAppearance: 'light',
@@ -487,6 +488,13 @@ function profileMenuStub(section) {
   showToast('Раздел — скоро будет доступно');
 }
 
+function updateReferralBonusDisplay(bonus) {
+  const amount = Math.max(0, Math.round(Number(bonus) || 0));
+  state.referralBonus = amount;
+  const el = document.getElementById('referralBonusAmount');
+  if (el) el.textContent = `+${amount} сом`;
+}
+
 async function fetchReferralsMy() {
   const initData = getTelegramInitData();
   if (!initData) throw new Error('Откройте приложение через Telegram');
@@ -503,6 +511,7 @@ async function refreshReferralStats() {
     const data = await fetchReferralsMy();
     state.referralCount = data.count ?? 0;
     state.referralLink = data.link || '';
+    if (data.bonus != null) updateReferralBonusDisplay(data.bonus);
     const el = document.getElementById('profileReferralsCount');
     if (el) el.textContent = String(state.referralCount);
   } catch {}
@@ -514,6 +523,7 @@ async function openReferralProgram() {
     const data = await fetchReferralsMy();
     state.referralCount = data.count ?? 0;
     state.referralLink = data.link || '';
+    if (data.bonus != null) updateReferralBonusDisplay(data.bonus);
     document.getElementById('referralScreenCount').textContent = String(state.referralCount);
     document.getElementById('referralLinkInput').value = data.link || '';
     document.getElementById('profileReferralsCount').textContent = String(state.referralCount);
@@ -543,9 +553,10 @@ function copyReferralLink() {
 function shareReferralLink() {
   const link = document.getElementById('referralLinkInput')?.value || state.referralLink;
   if (!link) return showToast('Ссылка недоступна', 'error');
-  const text = `Присоединяйся к Red Shop! Получи +30 сом на баланс: ${link}`;
+  const bonus = state.referralBonus || 30;
+  const text = `Присоединяйся к Red Shop! Получи +${bonus} сом на баланс: ${link}`;
   if (tg?.openTelegramLink) {
-    tg.openTelegramLink(`https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent('Присоединяйся к Red Shop! +30 сом на баланс')}`);
+    tg.openTelegramLink(`https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(`Присоединяйся к Red Shop! +${bonus} сом на баланс`)}`);
   } else if (navigator.share) {
     navigator.share({ title: 'Red Shop', text, url: link }).catch(() => copyReferralLink());
   } else {
@@ -3728,11 +3739,41 @@ async function sendBroadcast() {
 
 async function loadStats() {
   try {
+    await loadReferralBonusSettings();
     const stats = await api('GET', '/stats', null, true);
     const products = await api('GET', '/products');
     renderStats(stats, products);
   } catch {
     showToast('Ошибка загрузки статистики', 'error');
+  }
+}
+
+async function loadReferralBonusSettings() {
+  try {
+    const data = await api('GET', '/settings');
+    const input = document.getElementById('adminReferralBonus');
+    if (input) input.value = data.referralBonus ?? 30;
+  } catch {}
+}
+
+async function saveReferralBonusSettings() {
+  const input = document.getElementById('adminReferralBonus');
+  const btn = document.getElementById('saveReferralBonusBtn');
+  const bonus = parseInt(input?.value, 10);
+  if (!Number.isFinite(bonus) || bonus < 0) {
+    showToast('Введите корректную сумму', 'error');
+    return;
+  }
+  if (btn) { btn.disabled = true; btn.textContent = 'Сохранение...'; }
+  try {
+    const data = await api('PUT', '/settings', { referralBonus: bonus }, true);
+    if (input) input.value = data.referralBonus;
+    updateReferralBonusDisplay(data.referralBonus);
+    showToast('Реферальный бонус сохранён ✓', 'success');
+  } catch (err) {
+    showToast('Ошибка: ' + (err.message || 'не удалось сохранить'), 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Сохранить'; }
   }
 }
 

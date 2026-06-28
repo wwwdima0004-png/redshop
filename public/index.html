@@ -267,7 +267,7 @@
       <h2 class="order-history-title">Реферальная программа</h2>
     </div>
     <div class="referral-content">
-      <p class="referral-desc">Приглашайте друзей и получайте <strong>+30 сом</strong> на баланс — вы и ваш друг.</p>
+      <p class="referral-desc">Приглашайте друзей и получайте <strong id="referralBonusAmount">+30 сом</strong> на баланс — вы и ваш друг.</p>
       <div class="referral-stat-card">
         <div class="referral-stat-value" id="referralScreenCount">0</div>
         <div class="referral-stat-label">Приглашено друзей</div>
@@ -529,7 +529,7 @@
         <div class="success-ring success-ring-1"></div>
         <div class="success-ring success-ring-2"></div>
       </div>
-      <h2 class="success-title">Заказ принят!</h2>
+      <h2 class="success-title">Заказ успешно оформлен!</h2>
       <p class="success-desc">
         Спасибо за ваш заказ. Наш менеджер проверит заявку и свяжется с вами в ближайшее время для подтверждения.
       </p>
@@ -817,6 +817,15 @@
   <div id="tab-stats" class="admin-tab hidden">
     <div class="tab-content">
       <h3 class="tab-title">Статистика</h3>
+      <div class="card" style="margin-bottom:20px">
+        <h4>Реферальная программа</h4>
+        <p class="admin-hint">Одинаковая сумма начисляется пригласившему и новому пользователю при первом входе по ссылке.</p>
+        <div class="form-group">
+          <label>Реферальный бонус (сом)</label>
+          <input type="number" id="adminReferralBonus" class="form-input" min="0" step="1" placeholder="30">
+        </div>
+        <button type="button" class="btn-primary" id="saveReferralBonusBtn" onclick="saveReferralBonusSettings()">Сохранить</button>
+      </div>
       <div id="statsGrid" class="stats-grid">
         <!-- Injected by JS -->
       </div>
