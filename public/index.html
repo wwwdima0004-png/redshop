@@ -131,6 +131,7 @@
 
   <!-- Promo banner -->
   <section class="catalog-promo" id="catalogPromo">
+    <div class="catalog-promo-bg-overlay hidden" id="catalogPromoOverlay" aria-hidden="true"></div>
     <div class="catalog-promo-glow" aria-hidden="true"></div>
     <div class="catalog-promo-tag"><span class="catalog-promo-fire" aria-hidden="true">🔥</span> <span id="bannerTag">НИЗКИЕ ЦЕНЫ, УЖЕ СЕГОДНЯ</span></div>
     <h2 class="catalog-promo-title" id="bannerTitle">График с 13:00 до 00:00</h2>
@@ -846,7 +847,19 @@
             <label>Текст кнопки</label>
             <input type="text" id="adminBannerButton" class="form-input" placeholder="Крутить колесо" maxlength="60" required>
           </div>
-          <button type="submit" class="btn-primary" id="saveBannerBtn">Сохранить</button>
+          <div class="form-group">
+            <label>Фоновое изображение баннера (необяз.)</label>
+            <div class="file-upload-area" onclick="document.getElementById('adminBannerBgImage').click()">
+              <div id="adminBannerBgPreview" class="file-preview-icon">🖼</div>
+              <span id="adminBannerBgName">Выберите фон (необяз.)</span>
+            </div>
+            <input type="file" id="adminBannerBgImage" name="bgImage" accept="image/*" style="display:none"
+              onchange="previewAdminBannerBg(this)">
+          </div>
+          <div class="form-row" style="gap:10px;flex-wrap:wrap">
+            <button type="submit" class="btn-primary" id="saveBannerBtn">Сохранить</button>
+            <button type="button" class="btn-outline hidden" id="removeBannerBgBtn" onclick="removeBannerBg()">Удалить фон</button>
+          </div>
         </form>
       </div>
     </div>

@@ -846,10 +846,23 @@ function renderCatalogBanner() {
   const titleEl = document.getElementById('bannerTitle');
   const subEl = document.getElementById('bannerSubtitle');
   const btnEl = document.getElementById('bannerBtn');
+  const promo = document.getElementById('catalogPromo');
+  const overlay = document.getElementById('catalogPromoOverlay');
   if (tagEl) tagEl.textContent = b.tag || DEFAULT_BANNER.tag;
   if (titleEl) titleEl.textContent = b.title || DEFAULT_BANNER.title;
   if (subEl) subEl.textContent = b.subtitle || DEFAULT_BANNER.subtitle;
   if (btnEl) btnEl.textContent = b.buttonText || DEFAULT_BANNER.buttonText;
+  if (promo) {
+    if (b.bgImage) {
+      promo.classList.add('has-bg-image');
+      promo.style.backgroundImage = `url(${normalizePhotoSrc(b.bgImage)})`;
+      overlay?.classList.remove('hidden');
+    } else {
+      promo.classList.remove('has-bg-image');
+      promo.style.backgroundImage = '';
+      overlay?.classList.add('hidden');
+    }
+  }
 }
 
 function getCategoryName(categoryId) {
@@ -892,24 +905,58 @@ function getProductsByCategory(categoryId) {
   return state.products.filter(p => p.categoryId === categoryId);
 }
 
+const FLAVOR_EMOJI_RULES = [
+  [/bubble\s*gum|bubblegum|жвачк/, '🫧'],
+  [/energy|энергетик|red\s*bull|monster/, '⚡'],
+  [/морожен|ice\s*cream|sundae/, '🍦'],
+  [/шоколад|chocolate|cocoa/, '🍫'],
+  [/кофе|coffee|latte|espresso|cappuccino/, '☕'],
+  [/ванил|vanilla/, '🍦'],
+  [/тропик|tropic|passion\s*fruit|маракуй|maracuja/, '🌴'],
+  [/цитрус|citrus/, '🍊'],
+  [/berry|berries|ягод/, '🫐'],
+  [/blackber|ежевик/, '🫐'],
+  [/blueber|черник/, '🫐'],
+  [/raspber|малин/, '🫐'],
+  [/strawber|клубник/, '🍓'],
+  [/cranber|клюкв/, '🫐'],
+  [/watermelon|арбуз/, '🍉'],
+  [/pineapple|ананас/, '🍍'],
+  [/coconut|кокос/, '🥥'],
+  [/melon|дын|cantaloupe|honeydew/, '🍈'],
+  [/banana|банан/, '🍌'],
+  [/mango|манго/, '🥭'],
+  [/peach|персик|nectarine|нектарин/, '🍑'],
+  [/pear|груш/, '🍐'],
+  [/apple|яблок/, '🍎'],
+  [/grape|виноград/, '🍇'],
+  [/cherry|вишн|черешн/, '🍒'],
+  [/orange|апельсин|mandarin|мандарин|tangerine/, '🍊'],
+  [/lemon|лимон/, '🍋'],
+  [/lime|лайм/, '🍈'],
+  [/kiwi|киви/, '🥝'],
+  [/lychee|личи|litchi/, '🤍'],
+  [/pomegranate|гранат/, '🔴'],
+  [/cola|кола|pepsi|sprite|fanta|soda/, '🥤'],
+  [/menthol|ментол/, '❄️'],
+  [/\bice\b|лёд|лед|айс|frost|frozen|мороз/, '🧊'],
+  [/mint|мят|spearmint|peppermint/, '🌿'],
+  [/guava|гуава/, '🍈'],
+  [/papaya|папай/, '🍈'],
+  [/plum|слив/, '🍑'],
+  [/fig|инжир/, '🍈'],
+  [/passion|passiflora/, '🌴'],
+  [/dragon\s*fruit|питай|dragonfruit/, '🍈'],
+  [/tobacco|табак/, '🍂'],
+  [/caramel|карамел/, '🍮'],
+  [/honey|мёд|мед/, '🍯'],
+  [/cinnamon|корица/, '🍂'],
+  [/matcha|матча|green\s*tea|зелён.*чай/, '🍵']
+];
+
 function getFlavorEmoji(product) {
-  const name = (product.description || product.name || '').toLowerCase();
-  const map = [
-    [/watermelon|арбуз/, '🍉'],
-    [/mango|манго/, '🥭'],
-    [/peach|персик/, '🍑'],
-    [/blueber|черник/, '🫐'],
-    [/strawber|клубник/, '🍓'],
-    [/kiwi|киви/, '🥝'],
-    [/lychee|личи/, '🍒'],
-    [/grape|виноград/, '🍇'],
-    [/cola|кола/, '🥤'],
-    [/mint|мят/, '🌿'],
-    [/apple|яблок/, '🍎'],
-    [/banana|банан/, '🍌'],
-    [/lemon|лимон/, '🍋']
-  ];
-  for (const [re, emoji] of map) {
+  const name = `${product?.name || ''} ${product?.description || ''}`.toLowerCase();
+  for (const [re, emoji] of FLAVOR_EMOJI_RULES) {
     if (re.test(name)) return emoji;
   }
   return '💨';
@@ -2570,30 +2617,96 @@ async function loadAdminBanner() {
     document.getElementById('adminBannerTitle').value = data.title || '';
     document.getElementById('adminBannerSubtitle').value = data.subtitle || '';
     document.getElementById('adminBannerButton').value = data.buttonText || '';
+    updateAdminBannerBgPreview(data.bgImage || '');
+    const bgInput = document.getElementById('adminBannerBgImage');
+    if (bgInput) bgInput.value = '';
   } catch {
     showToast('Не удалось загрузить баннер', 'error');
   }
 }
 
+function updateAdminBannerBgPreview(bgImage) {
+  const preview = document.getElementById('adminBannerBgPreview');
+  const nameEl = document.getElementById('adminBannerBgName');
+  const removeBtn = document.getElementById('removeBannerBgBtn');
+  if (bgImage) {
+    const src = normalizePhotoSrc(bgImage);
+    if (preview) {
+      preview.innerHTML = `<img src="${src}" alt="" style="width:48px;height:48px;object-fit:cover;border-radius:8px;">`;
+    }
+    if (nameEl) nameEl.textContent = 'Фон установлен';
+    removeBtn?.classList.remove('hidden');
+  } else {
+    if (preview) preview.textContent = '🖼';
+    if (nameEl) nameEl.textContent = 'Выберите фон (необяз.)';
+    removeBtn?.classList.add('hidden');
+  }
+}
+
+function previewAdminBannerBg(input) {
+  if (!input.files[0]) return;
+  const name = input.files[0].name;
+  const nameEl = document.getElementById('adminBannerBgName');
+  if (nameEl) {
+    nameEl.textContent = name.length > 24 ? name.slice(0, 24) + '...' : name;
+  }
+  const reader = new FileReader();
+  reader.onload = e => {
+    const preview = document.getElementById('adminBannerBgPreview');
+    if (preview) {
+      preview.innerHTML = `<img src="${e.target.result}" alt="" style="width:48px;height:48px;object-fit:cover;border-radius:8px;">`;
+    }
+  };
+  reader.readAsDataURL(input.files[0]);
+}
+
 async function saveBannerSettings(e) {
   e.preventDefault();
   const btn = document.getElementById('saveBannerBtn');
-  const payload = {
-    tag: document.getElementById('adminBannerTag').value.trim(),
-    title: document.getElementById('adminBannerTitle').value.trim(),
-    subtitle: document.getElementById('adminBannerSubtitle').value.trim(),
-    buttonText: document.getElementById('adminBannerButton').value.trim()
-  };
+  const fd = new FormData();
+  fd.append('tag', document.getElementById('adminBannerTag').value.trim());
+  fd.append('title', document.getElementById('adminBannerTitle').value.trim());
+  fd.append('subtitle', document.getElementById('adminBannerSubtitle').value.trim());
+  fd.append('buttonText', document.getElementById('adminBannerButton').value.trim());
+  const bgInput = document.getElementById('adminBannerBgImage');
+  if (bgInput?.files[0]) fd.append('bgImage', bgInput.files[0]);
+
   if (btn) { btn.disabled = true; btn.textContent = 'Сохранение...'; }
   try {
-    const data = await api('PUT', '/banner', payload, true);
+    const data = await adminFormFetch('PUT', `${API}/banner`, fd);
     state.banner = data;
+    updateAdminBannerBgPreview(data.bgImage || '');
+    if (bgInput) bgInput.value = '';
     renderCatalogBanner();
     showToast('Баннер сохранён ✓', 'success');
   } catch (err) {
     showToast('Ошибка: ' + (err.message || 'не удалось сохранить'), 'error');
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = 'Сохранить'; }
+  }
+}
+
+async function removeBannerBg() {
+  const btn = document.getElementById('removeBannerBgBtn');
+  const fd = new FormData();
+  fd.append('tag', document.getElementById('adminBannerTag').value.trim());
+  fd.append('title', document.getElementById('adminBannerTitle').value.trim());
+  fd.append('subtitle', document.getElementById('adminBannerSubtitle').value.trim());
+  fd.append('buttonText', document.getElementById('adminBannerButton').value.trim());
+  fd.append('removeBgImage', 'true');
+  if (btn) btn.disabled = true;
+  try {
+    const data = await adminFormFetch('PUT', `${API}/banner`, fd);
+    state.banner = data;
+    updateAdminBannerBgPreview('');
+    const bgInput = document.getElementById('adminBannerBgImage');
+    if (bgInput) bgInput.value = '';
+    renderCatalogBanner();
+    showToast('Фон баннера удалён ✓', 'success');
+  } catch (err) {
+    showToast('Ошибка: ' + (err.message || 'не удалось удалить фон'), 'error');
+  } finally {
+    if (btn) btn.disabled = false;
   }
 }
 

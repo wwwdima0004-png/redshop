@@ -109,12 +109,17 @@ function readBanner() {
   const banner = readJSON('banner.json');
   if (!banner || typeof banner !== 'object' || Array.isArray(banner)) return defaultBanner();
   const defaults = defaultBanner();
-  return {
+  const result = {
     tag: String(banner.tag || defaults.tag).trim().slice(0, 120) || defaults.tag,
     title: String(banner.title || defaults.title).trim().slice(0, 200) || defaults.title,
     subtitle: String(banner.subtitle || defaults.subtitle).trim().slice(0, 200) || defaults.subtitle,
     buttonText: String(banner.buttonText || defaults.buttonText).trim().slice(0, 60) || defaults.buttonText
   };
+  if (banner.bgImage && typeof banner.bgImage === 'string') {
+    const bg = banner.bgImage.trim();
+    if (bg) result.bgImage = bg.slice(0, 500);
+  }
+  return result;
 }
 
 const REFERRAL_BONUS = 30;
@@ -994,19 +999,38 @@ app.get('/api/banner', (req, res) => {
   res.json(readBanner());
 });
 
-app.put('/api/banner', requireAdmin, (req, res) => {
+app.put('/api/banner', requireAdmin, upload.single('bgImage'), (req, res) => {
   const current = readBanner();
   const body = req.body || {};
+  const removeBg = body.removeBgImage === 'true' || body.removeBgImage === true;
+
   const banner = {
-    tag: body.tag !== undefined ? String(body.tag).trim().slice(0, 120) : current.tag,
-    title: body.title !== undefined ? String(body.title).trim().slice(0, 200) : current.title,
-    subtitle: body.subtitle !== undefined ? String(body.subtitle).trim().slice(0, 200) : current.subtitle,
-    buttonText: body.buttonText !== undefined ? String(body.buttonText).trim().slice(0, 60) : current.buttonText
+    tag: body.tag !== undefined && String(body.tag).trim()
+      ? String(body.tag).trim().slice(0, 120)
+      : current.tag,
+    title: body.title !== undefined && String(body.title).trim()
+      ? String(body.title).trim().slice(0, 200)
+      : current.title,
+    subtitle: body.subtitle !== undefined && String(body.subtitle).trim()
+      ? String(body.subtitle).trim().slice(0, 200)
+      : current.subtitle,
+    buttonText: body.buttonText !== undefined && String(body.buttonText).trim()
+      ? String(body.buttonText).trim().slice(0, 60)
+      : current.buttonText
   };
   if (!banner.tag) banner.tag = defaultBanner().tag;
   if (!banner.title) banner.title = defaultBanner().title;
   if (!banner.subtitle) banner.subtitle = defaultBanner().subtitle;
   if (!banner.buttonText) banner.buttonText = defaultBanner().buttonText;
+
+  if (removeBg) {
+    // gradient only — no bgImage field
+  } else if (req.file) {
+    banner.bgImage = `/uploads/${req.file.filename}`;
+  } else if (current.bgImage) {
+    banner.bgImage = current.bgImage;
+  }
+
   writeJSON('banner.json', banner);
   res.json(banner);
 });
