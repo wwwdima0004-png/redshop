@@ -948,7 +948,7 @@ function flavorMatchesSearch(product, q) {
 }
 
 function getFilteredCatalogModels() {
-  let models = state.models.slice();
+  let models = state.models.filter(m => getProductsByModel(m.id).length > 0);
   if (state.selectedCategoryId) {
     models = models.filter(m => Number(m.brandId) === Number(state.selectedCategoryId));
   }
@@ -1305,20 +1305,8 @@ function renderCatalog() {
         : ''}
       <span class="product-badge product-badge-stock ${inStock ? '' : 'out'}">${inStock ? 'В наличии' : 'Нет в наличии'}</span>
       ${!inStock ? '<div class="out-of-stock-overlay">Нет в наличии</div>' : ''}
-      <button type="button" class="btn-quick-buy" aria-label="Быстрая покупка" title="Выбрать вкус">
-        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-          <path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/>
-        </svg>
-      </button>
     `;
-    photoWrap.addEventListener('click', (e) => {
-      if (e.target.closest('.btn-quick-buy')) return;
-      openFlavorModal(model.id);
-    });
-    photoWrap.querySelector('.btn-quick-buy')?.addEventListener('click', (e) => {
-      e.stopPropagation();
-      openFlavorModal(model.id);
-    });
+    photoWrap.addEventListener('click', () => openFlavorModal(model.id));
 
     const info = document.createElement('div');
     info.className = 'product-info';
@@ -2696,14 +2684,10 @@ function renderAdminCategories() {
 
   state.categories.forEach(cat => {
     const count = getCategoryProductCount(cat.id);
-    const photoSrc = normalizePhotoSrc(cat.photo);
     const item = document.createElement('div');
     item.className = 'admin-category-item';
     item.id = `adminCategory_${cat.id}`;
     item.innerHTML = `
-      <img class="admin-category-photo" src="${photoSrc}" alt="${escapeHtml(cat.name)}"
-        onclick="changeCategoryPhoto(${cat.id})" title="Нажмите чтобы изменить фото"
-        onerror="this.src='/img/placeholder.svg'">
       <div class="admin-category-name" id="catNameDisplay_${cat.id}">${escapeHtml(cat.name)}</div>
       <span class="admin-category-count">${count} вкус(ов)</span>
       <div id="catEditRow_${cat.id}" class="inline-edit-row hidden">
@@ -2711,15 +2695,6 @@ function renderAdminCategories() {
         <button class="btn-primary btn-sm" onclick="saveCategoryName(${cat.id})">✓</button>
         <button class="btn-sm btn-sm-grey" onclick="cancelCategoryEdit(${cat.id})">✕</button>
       </div>
-      <div class="form-group" style="margin-top:6px;flex:1 1 100%;min-width:140px">
-        <label style="font-size:11px;color:var(--grey)">Метка</label>
-        <div class="inline-edit-row" style="margin-top:4px">
-          <input type="text" class="form-input" id="catBadgeInput_${cat.id}"
-            value="${escapeHtml(cat.badge || '')}" placeholder="NEW, HIT, СКИДКА">
-          <button class="btn-primary btn-sm" onclick="saveCategoryBadge(${cat.id})">✓</button>
-        </div>
-      </div>
-      <button class="btn-sm btn-sm-grey" onclick="changeCategoryPhoto(${cat.id})">🖼 Фото</button>
       <button class="btn-sm btn-sm-red" onclick="toggleCategoryEdit(${cat.id})">✏️</button>
       <button class="btn-sm btn-sm-red" onclick="deleteCategory(${cat.id})">🗑</button>
     `;
@@ -2890,20 +2865,11 @@ async function addCategory(e) {
 
   const fd = new FormData();
   fd.append('name', name);
-  const badge = form.elements['badge']?.value?.trim();
-  if (badge) fd.append('badge', badge);
-  const fileInput = document.getElementById('addCategoryPhoto');
-  if (fileInput?.files[0]) fd.append('photo', fileInput.files[0]);
 
   try {
     await adminFormFetch('POST', `${API}/categories`, fd);
     showToast(`Позиция «${name}» добавлена ✓`, 'success');
     form.reset();
-    if (fileInput) fileInput.value = '';
-    const preview = document.getElementById('addCategoryPhotoPreview');
-    const photoName = document.getElementById('addCategoryPhotoName');
-    if (preview) preview.textContent = '📷';
-    if (photoName) photoName.textContent = 'Выберите фото (необяз.)';
     await loadAdminProducts();
     if (!state.selectedCategoryId) showCategoriesView();
     else await loadProducts();
