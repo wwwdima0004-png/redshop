@@ -133,10 +133,12 @@
   <section class="catalog-promo" id="catalogPromo">
     <div class="catalog-promo-bg-overlay hidden" id="catalogPromoOverlay" aria-hidden="true"></div>
     <div class="catalog-promo-glow" aria-hidden="true"></div>
-    <div class="catalog-promo-tag"><span class="catalog-promo-fire" aria-hidden="true">🔥</span> <span id="bannerTag">НИЗКИЕ ЦЕНЫ, УЖЕ СЕГОДНЯ</span></div>
-    <h2 class="catalog-promo-title" id="bannerTitle">График с 13:00 до 00:00</h2>
-    <p class="catalog-promo-sub" id="bannerSubtitle">Поступление уже в боте!!!</p>
-    <button type="button" class="catalog-promo-btn" id="bannerBtn" onclick="switchMainTab('bonus')">Крутить колесо</button>
+    <div class="catalog-promo-content" id="catalogPromoContent">
+      <div class="catalog-promo-tag hidden" id="bannerTagWrap"><span class="catalog-promo-fire" aria-hidden="true">🔥</span> <span id="bannerTag"></span></div>
+      <h2 class="catalog-promo-title hidden" id="bannerTitle"></h2>
+      <p class="catalog-promo-sub hidden" id="bannerSubtitle"></p>
+      <button type="button" class="catalog-promo-btn hidden" id="bannerBtn" onclick="switchMainTab('bonus')"></button>
+    </div>
   </section>
 
   <section class="catalog-section">
@@ -833,19 +835,19 @@
         <form id="bannerForm" onsubmit="saveBannerSettings(event)">
           <div class="form-group">
             <label>Метка (верхняя строка)</label>
-            <input type="text" id="adminBannerTag" class="form-input" placeholder="НИЗКИЕ ЦЕНЫ, УЖЕ СЕГОДНЯ" maxlength="120" required>
+            <input type="text" id="adminBannerTag" class="form-input" placeholder="НИЗКИЕ ЦЕНЫ, УЖЕ СЕГОДНЯ" maxlength="120">
           </div>
           <div class="form-group">
             <label>Заголовок</label>
-            <input type="text" id="adminBannerTitle" class="form-input" placeholder="График с 13:00 до 00:00" maxlength="200" required>
+            <input type="text" id="adminBannerTitle" class="form-input" placeholder="График с 13:00 до 00:00" maxlength="200">
           </div>
           <div class="form-group">
             <label>Подзаголовок</label>
-            <input type="text" id="adminBannerSubtitle" class="form-input" placeholder="Поступление уже в боте!!!" maxlength="200" required>
+            <input type="text" id="adminBannerSubtitle" class="form-input" placeholder="Поступление уже в боте!!!" maxlength="200">
           </div>
           <div class="form-group">
             <label>Текст кнопки</label>
-            <input type="text" id="adminBannerButton" class="form-input" placeholder="Крутить колесо" maxlength="60" required>
+            <input type="text" id="adminBannerButton" class="form-input" placeholder="Крутить колесо" maxlength="60">
           </div>
           <div class="form-group">
             <label>Фоновое изображение баннера (необяз.)</label>

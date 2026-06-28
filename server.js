@@ -108,12 +108,11 @@ function defaultBanner() {
 function readBanner() {
   const banner = readJSON('banner.json');
   if (!banner || typeof banner !== 'object' || Array.isArray(banner)) return defaultBanner();
-  const defaults = defaultBanner();
   const result = {
-    tag: String(banner.tag || defaults.tag).trim().slice(0, 120) || defaults.tag,
-    title: String(banner.title || defaults.title).trim().slice(0, 200) || defaults.title,
-    subtitle: String(banner.subtitle || defaults.subtitle).trim().slice(0, 200) || defaults.subtitle,
-    buttonText: String(banner.buttonText || defaults.buttonText).trim().slice(0, 60) || defaults.buttonText
+    tag: banner.tag != null ? String(banner.tag).trim().slice(0, 120) : '',
+    title: banner.title != null ? String(banner.title).trim().slice(0, 200) : '',
+    subtitle: banner.subtitle != null ? String(banner.subtitle).trim().slice(0, 200) : '',
+    buttonText: banner.buttonText != null ? String(banner.buttonText).trim().slice(0, 60) : ''
   };
   if (banner.bgImage && typeof banner.bgImage === 'string') {
     const bg = banner.bgImage.trim();
@@ -1005,23 +1004,11 @@ app.put('/api/banner', requireAdmin, upload.single('bgImage'), (req, res) => {
   const removeBg = body.removeBgImage === 'true' || body.removeBgImage === true;
 
   const banner = {
-    tag: body.tag !== undefined && String(body.tag).trim()
-      ? String(body.tag).trim().slice(0, 120)
-      : current.tag,
-    title: body.title !== undefined && String(body.title).trim()
-      ? String(body.title).trim().slice(0, 200)
-      : current.title,
-    subtitle: body.subtitle !== undefined && String(body.subtitle).trim()
-      ? String(body.subtitle).trim().slice(0, 200)
-      : current.subtitle,
-    buttonText: body.buttonText !== undefined && String(body.buttonText).trim()
-      ? String(body.buttonText).trim().slice(0, 60)
-      : current.buttonText
+    tag: body.tag !== undefined ? String(body.tag).trim().slice(0, 120) : current.tag,
+    title: body.title !== undefined ? String(body.title).trim().slice(0, 200) : current.title,
+    subtitle: body.subtitle !== undefined ? String(body.subtitle).trim().slice(0, 200) : current.subtitle,
+    buttonText: body.buttonText !== undefined ? String(body.buttonText).trim().slice(0, 60) : current.buttonText
   };
-  if (!banner.tag) banner.tag = defaultBanner().tag;
-  if (!banner.title) banner.title = defaultBanner().title;
-  if (!banner.subtitle) banner.subtitle = defaultBanner().subtitle;
-  if (!banner.buttonText) banner.buttonText = defaultBanner().buttonText;
 
   if (removeBg) {
     // gradient only — no bgImage field

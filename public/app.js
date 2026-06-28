@@ -841,27 +841,57 @@ async function loadBanner() {
 }
 
 function renderCatalogBanner() {
-  const b = state.banner || DEFAULT_BANNER;
+  const b = state.banner || {};
+  const tag = (b.tag || '').trim();
+  const title = (b.title || '').trim();
+  const subtitle = (b.subtitle || '').trim();
+  const buttonText = (b.buttonText || '').trim();
+  const hasBg = !!(b.bgImage && String(b.bgImage).trim());
+  const hasText = !!(tag || title || subtitle || buttonText);
+
+  const promo = document.getElementById('catalogPromo');
+  const content = document.getElementById('catalogPromoContent');
+  const tagWrap = document.getElementById('bannerTagWrap');
   const tagEl = document.getElementById('bannerTag');
   const titleEl = document.getElementById('bannerTitle');
   const subEl = document.getElementById('bannerSubtitle');
   const btnEl = document.getElementById('bannerBtn');
-  const promo = document.getElementById('catalogPromo');
   const overlay = document.getElementById('catalogPromoOverlay');
-  if (tagEl) tagEl.textContent = b.tag || DEFAULT_BANNER.tag;
-  if (titleEl) titleEl.textContent = b.title || DEFAULT_BANNER.title;
-  if (subEl) subEl.textContent = b.subtitle || DEFAULT_BANNER.subtitle;
-  if (btnEl) btnEl.textContent = b.buttonText || DEFAULT_BANNER.buttonText;
-  if (promo) {
-    if (b.bgImage) {
-      promo.classList.add('has-bg-image');
-      promo.style.backgroundImage = `url(${normalizePhotoSrc(b.bgImage)})`;
-      overlay?.classList.remove('hidden');
-    } else {
-      promo.classList.remove('has-bg-image');
-      promo.style.backgroundImage = '';
-      overlay?.classList.add('hidden');
-    }
+
+  if (!promo) return;
+
+  if (!hasText && !hasBg) {
+    promo.classList.add('hidden');
+    return;
+  }
+  promo.classList.remove('hidden');
+
+  tagWrap?.classList.toggle('hidden', !tag);
+  if (tagEl) tagEl.textContent = tag;
+
+  titleEl?.classList.toggle('hidden', !title);
+  if (titleEl && title) titleEl.textContent = title;
+
+  subEl?.classList.toggle('hidden', !subtitle);
+  if (subEl && subtitle) subEl.textContent = subtitle;
+
+  btnEl?.classList.toggle('hidden', !buttonText);
+  if (btnEl && buttonText) btnEl.textContent = buttonText;
+
+  const imageOnly = hasBg && !hasText;
+  promo.classList.toggle('promo-image-only', imageOnly);
+  content?.classList.toggle('hidden', imageOnly);
+
+  if (hasBg) {
+    promo.classList.add('has-bg-image');
+    promo.style.backgroundImage = `url(${normalizePhotoSrc(b.bgImage)})`;
+    overlay?.classList.remove('hidden');
+    overlay?.classList.toggle('promo-overlay-light', imageOnly);
+  } else {
+    promo.classList.remove('has-bg-image');
+    promo.style.backgroundImage = '';
+    overlay?.classList.add('hidden');
+    overlay?.classList.remove('promo-overlay-light');
   }
 }
 
