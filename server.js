@@ -83,6 +83,7 @@ function ensureDataFiles() {
   migrateProductsCategory();
   migrateProductsStock();
   migrateProductsModels();
+  migrateModelPricesFromFlavors();
 
   if (!fs.existsSync(path.join(DATA_DIR, 'orders.json'))) writeJSON('orders.json', []);
   if (!fs.existsSync(path.join(DATA_DIR, 'users.json'))) writeJSON('users.json', []);
@@ -227,8 +228,12 @@ function initUserNotificationFields(user) {
 function normalizeCartItem(item) {
   const id = Number(item?.id);
   const qty = Math.max(1, Math.min(99, Math.round(Number(item?.qty) || 1)));
-  const price = Math.max(0, Math.round(Number(item?.price) || 0));
-  const name = String(item?.name || '').trim().slice(0, 200);
+  const products = readJSON('products.json');
+  const product = products.find(p => Number(p.id) === id);
+  if (!product) return null;
+  const models = readJSON('models.json');
+  const price = getProductModelPrice(product, models);
+  const name = String(item?.name || product.name || '').trim().slice(0, 200);
   if (!id || !name) return null;
   return { id, name, price, qty };
 }
@@ -625,6 +630,70 @@ function migrateProductsModels() {
   if (productsChanged) writeJSON('products.json', products);
 }
 
+function parsePositivePrice(value) {
+  const price = parseInt(value, 10);
+  return Number.isFinite(price) && price >= 1 ? price : null;
+}
+
+function getModelRecord(models, modelId) {
+  return (Array.isArray(models) ? models : readJSON('models.json'))
+    .find(m => Number(m.id) === Number(modelId));
+}
+
+function getProductModelPrice(product, models) {
+  const model = getModelRecord(models, product?.modelId);
+  if (model && Number.isFinite(model.price) && model.price >= 1) {
+    return model.price;
+  }
+  return Number(product?.price) || 0;
+}
+
+function applyModelPriceFields(model, priceRaw, oldPriceRaw) {
+  if (priceRaw !== undefined) {
+    const price = parsePositivePrice(priceRaw);
+    if (price === null) return { error: 'Укажите корректную цену (1 или больше)' };
+    model.price = price;
+    if (model.oldPrice && model.oldPrice <= model.price) delete model.oldPrice;
+  }
+  if (oldPriceRaw !== undefined) {
+    const currentPrice = parsePositivePrice(model.price) || 0;
+    if (oldPriceRaw === '' || oldPriceRaw === null) {
+      delete model.oldPrice;
+    } else {
+      const oldPrice = parseInt(oldPriceRaw, 10);
+      if (Number.isFinite(oldPrice) && oldPrice > currentPrice) model.oldPrice = oldPrice;
+      else delete model.oldPrice;
+    }
+  }
+  return null;
+}
+
+function migrateModelPricesFromFlavors() {
+  const models = readJSON('models.json');
+  const products = readJSON('products.json');
+  if (!Array.isArray(models)) return;
+
+  let changed = false;
+  models.forEach(model => {
+    if (parsePositivePrice(model.price)) return;
+    const flavors = products.filter(p => Number(p.modelId) === Number(model.id));
+    if (!flavors.length) return;
+    const first = flavors[0];
+    const price = parsePositivePrice(first.price);
+    if (price) {
+      model.price = price;
+      changed = true;
+    }
+    const oldPrice = parseInt(first.oldPrice, 10);
+    if (Number.isFinite(oldPrice) && oldPrice > model.price) {
+      model.oldPrice = oldPrice;
+      changed = true;
+    }
+  });
+
+  if (changed) writeJSON('models.json', models);
+}
+
 function resolveProductModelFields(body, categories, models) {
   const modelsList = Array.isArray(models) ? models : readJSON('models.json');
   const categoriesList = Array.isArray(categories) ? categories : readJSON('categories.json');
@@ -655,6 +724,7 @@ function validateOrderItems(rawItems) {
 
   const products = readJSON('products.json');
   const categories = readJSON('categories.json');
+  const models = readJSON('models.json');
   const qtyById = new Map();
 
   for (const raw of rawItems) {
@@ -687,7 +757,11 @@ function validateOrderItems(rawItems) {
       return { error: `Недостаточно «${label}» (осталось ${stock} шт)`, status: 400 };
     }
 
-    const price = Number(product.price) || 0;
+    const price = getProductModelPrice(product, models);
+    if (price < 1) {
+      const label = product.description || product.name;
+      return { error: `Для «${label}» не задана цена модели`, status: 400 };
+    }
     const category = categories.find(c => Number(c.id) === Number(product.categoryId));
     items.push({
       id: product.id,
@@ -1171,6 +1245,11 @@ app.post('/api/models', requireAdmin, upload.single('photo'), (req, res) => {
   };
   const badge = (req.body.badge || '').trim();
   if (badge) model.badge = badge;
+  const priceErr = applyModelPriceFields(model, req.body.price, req.body.oldPrice);
+  if (priceErr) return res.status(400).json(priceErr);
+  if (!parsePositivePrice(model.price)) {
+    return res.status(400).json({ error: 'Укажите цену модели' });
+  }
   models.push(model);
   writeJSON('models.json', models);
   res.json(model);
@@ -1208,6 +1287,20 @@ app.put('/api/models/:id', requireAdmin, upload.single('photo'), (req, res) => {
     if (badge) models[idx].badge = badge;
     else delete models[idx].badge;
   }
+  if (req.body.price !== undefined || req.body.oldPrice !== undefined) {
+    const priceErr = applyModelPriceFields(models[idx], req.body.price, req.body.oldPrice);
+    if (priceErr) return res.status(400).json(priceErr);
+    const products = readJSON('products.json');
+    let productsChanged = false;
+    products.forEach(p => {
+      if (Number(p.modelId) !== Number(models[idx].id)) return;
+      p.price = models[idx].price;
+      if (models[idx].oldPrice && models[idx].oldPrice > p.price) p.oldPrice = models[idx].oldPrice;
+      else delete p.oldPrice;
+      productsChanged = true;
+    });
+    if (productsChanged) writeJSON('products.json', products);
+  }
   if (req.file) models[idx].photo = `/uploads/${req.file.filename}`;
   writeJSON('models.json', models);
   res.json(models[idx]);
@@ -1242,13 +1335,17 @@ app.post('/api/products', requireAdmin, upload.single('photo'), (req, res) => {
   const resolved = resolveProductModelFields(req.body, categories, models);
   if (resolved.error) return res.status(400).json({ error: resolved.error });
 
+  const model = getModelRecord(models, resolved.modelId);
+  const modelPrice = getProductModelPrice({ modelId: resolved.modelId, price: req.body.price }, models);
+  if (modelPrice < 1) {
+    return res.status(400).json({ error: 'Сначала укажите цену у модели' });
+  }
+
   const newId = products.length > 0 ? Math.max(...products.map(p => p.id)) + 1 : 1;
-  const oldPriceRaw = req.body.oldPrice;
-  const oldPrice = oldPriceRaw !== undefined && oldPriceRaw !== '' ? parseInt(oldPriceRaw) : null;
   const product = {
     id: newId,
     name: req.body.name,
-    price: parseInt(req.body.price),
+    price: modelPrice,
     categoryId: resolved.categoryId,
     modelId: resolved.modelId,
     photo: req.file ? `/uploads/${req.file.filename}` : '/img/placeholder.svg',
@@ -1257,8 +1354,8 @@ app.post('/api/products', requireAdmin, upload.single('photo'), (req, res) => {
     stock: Math.max(0, parseInt(req.body.stock, 10) || 10),
     description: req.body.description || ''
   };
+  if (model?.oldPrice && model.oldPrice > modelPrice) product.oldPrice = model.oldPrice;
   if (product.stock <= 0) product.available = false;
-  if (oldPrice && oldPrice > product.price) product.oldPrice = oldPrice;
   products.push(product);
   writeJSON('products.json', products);
   res.json(product);
@@ -1272,7 +1369,6 @@ app.put('/api/products/:id', requireAdmin, upload.single('photo'), (req, res) =>
   if (idx === -1) return res.status(404).json({ error: 'Товар не найден' });
 
   if (req.body.name !== undefined) products[idx].name = req.body.name;
-  if (req.body.price !== undefined) products[idx].price = parseInt(req.body.price);
   if (req.body.available !== undefined) products[idx].available = req.body.available === 'true' || req.body.available === true;
   if (req.body.description !== undefined) products[idx].description = req.body.description;
   if (req.body.stock !== undefined) {
@@ -1296,10 +1392,12 @@ app.put('/api/products/:id', requireAdmin, upload.single('photo'), (req, res) =>
       if (defaultModel) products[idx].modelId = defaultModel.id;
     }
   }
-  if (req.body.oldPrice !== undefined) {
-    const oldPrice = req.body.oldPrice === '' || req.body.oldPrice === null ? null : parseInt(req.body.oldPrice);
-    if (oldPrice && oldPrice > products[idx].price) products[idx].oldPrice = oldPrice;
-    else delete products[idx].oldPrice;
+  const linkedModel = getModelRecord(models, products[idx].modelId);
+  products[idx].price = getProductModelPrice(products[idx], models);
+  if (linkedModel?.oldPrice && linkedModel.oldPrice > products[idx].price) {
+    products[idx].oldPrice = linkedModel.oldPrice;
+  } else {
+    delete products[idx].oldPrice;
   }
   if (req.file) products[idx].photo = `/uploads/${req.file.filename}`;
 

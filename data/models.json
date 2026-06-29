@@ -3,7 +3,9 @@
     "id": 1,
     "brandId": 1,
     "name": "Общая",
-    "photo": "/img/placeholder.svg"
+    "photo": "/img/placeholder.svg",
+    "price": 350,
+    "oldPrice": 450
   },
   {
     "id": 2,

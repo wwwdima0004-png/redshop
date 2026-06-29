@@ -645,6 +645,16 @@
               <input type="text" name="badge" class="form-input" placeholder="NEW, HIT">
             </div>
           </div>
+          <div class="form-row">
+            <div class="form-group" style="flex:1">
+              <label>Цена (сом)</label>
+              <input type="number" id="addModelPrice" name="price" class="form-input" placeholder="350" min="1" required>
+            </div>
+            <div class="form-group" style="flex:1">
+              <label>Старая цена (сом, необяз.)</label>
+              <input type="number" id="addModelOldPrice" name="oldPrice" class="form-input" placeholder="450" min="1">
+            </div>
+          </div>
           <div class="form-group">
             <label>Фото модели</label>
             <div class="file-upload-area" onclick="document.getElementById('addModelPhoto').click()">
@@ -689,14 +699,6 @@
           </div>
           <div class="form-row">
             <div class="form-group">
-              <label>Цена (сом)</label>
-              <input type="number" name="price" class="form-input" placeholder="350" min="1" required>
-            </div>
-            <div class="form-group">
-              <label>Старая цена (сом, необяз.)</label>
-              <input type="number" name="oldPrice" class="form-input" placeholder="450" min="1">
-            </div>
-            <div class="form-group">
               <label>Остаток (шт)</label>
               <input type="number" name="stock" class="form-input" placeholder="10" min="0" value="10">
             </div>
@@ -720,6 +722,27 @@
 
       <!-- Products list -->
       <h4 class="section-title">Список товаров</h4>
+      <div class="card" style="margin-bottom:16px">
+        <div class="form-row">
+          <div class="form-group">
+            <label>Фильтр по бренду</label>
+            <select id="adminProductsFilterBrand" class="form-input" onchange="onAdminProductsFilterChange()">
+              <option value="">Все бренды</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Фильтр по модели</label>
+            <select id="adminProductsFilterModel" class="form-input" onchange="onAdminProductsFilterChange()">
+              <option value="">Все модели</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Фильтр по вкусу</label>
+            <input type="search" id="adminProductsFilterFlavor" class="form-input"
+              placeholder="Название вкуса" oninput="onAdminProductsFilterChange()">
+          </div>
+        </div>
+      </div>
       <div id="adminProductsList" class="admin-products-list"></div>
     </div>
   </div>

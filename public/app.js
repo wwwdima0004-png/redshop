@@ -17,6 +17,9 @@ const state = {
   categories: [],
   models: [],
   adminModelsFilterBrandId: '',
+  adminProductsFilterBrandId: '',
+  adminProductsFilterModelId: '',
+  adminProductsFilterFlavor: '',
   selectedCategoryId: null,
   catalogSearchQuery: '',
   cart: [],        // [{id, name, price, photo, qty}]
@@ -747,7 +750,7 @@ function updateBalanceToggleUI(context, subtotal) {
 function updateBuyOrderTotals() {
   const product = state.products.find(p => p.id === state.buyProductId);
   if (!product) return;
-  const subtotal = product.price;
+  const subtotal = getProductModelPrice(product);
   const payment = calcOrderPayment(subtotal, state.buyUseBalance);
   const totalsEl = document.getElementById('buyOrderTotals');
   if (!totalsEl) return;
@@ -1047,40 +1050,58 @@ function getFilteredCatalogModels() {
   return models;
 }
 
+function getModelRecord(modelId) {
+  return state.models.find(m => Number(m.id) === Number(modelId));
+}
+
+function getProductModelPrice(product) {
+  const model = getModelRecord(product?.modelId);
+  if (model && Number.isFinite(model.price) && model.price >= 1) {
+    return model.price;
+  }
+  return Number(product?.price) || 0;
+}
+
+function getModelDiscountPercent(model) {
+  const price = Number(model?.price) || 0;
+  const oldPrice = Number(model?.oldPrice);
+  if (oldPrice && oldPrice > price) {
+    return Math.round((1 - price / oldPrice) * 100);
+  }
+  return 0;
+}
+
+function cartItemFromProduct(product) {
+  return {
+    id: product.id,
+    name: product.name,
+    price: getProductModelPrice(product),
+    photo: product.photo,
+    modelId: product.modelId,
+    qty: 1
+  };
+}
+
+function refreshCartPrices() {
+  state.cart.forEach(item => {
+    const product = state.products.find(p => p.id === item.id);
+    if (product) item.price = getProductModelPrice(product);
+  });
+}
+
 function getModelPriceInfo(modelId) {
-  const flavors = getProductsByModel(modelId);
-  const purchasable = flavors.filter(isProductPurchasable);
-  const list = purchasable.length ? purchasable : flavors;
-  if (!list.length) {
+  const model = getModelRecord(modelId);
+  if (!model || !Number.isFinite(model.price) || model.price < 1) {
     return { minPrice: null, oldPrice: null, discountPercent: 0, pricePrefix: '' };
   }
-
-  let best = list[0];
-  let minPrice = Number(best.price) || 0;
-  list.forEach(p => {
-    const price = Number(p.price) || 0;
-    if (price < minPrice) {
-      minPrice = price;
-      best = p;
-    }
-  });
-
-  const oldPrice = Number(best.oldPrice);
+  const minPrice = model.price;
+  const oldPrice = Number(model.oldPrice);
   const hasDiscount = oldPrice && oldPrice > minPrice;
-  let discountPercent = hasDiscount ? Math.round((1 - minPrice / oldPrice) * 100) : 0;
-  list.forEach(p => {
-    const d = getProductDiscountPercent(p);
-    if (d > discountPercent) discountPercent = d;
-  });
-
-  const uniquePrices = new Set(list.map(p => Number(p.price) || 0));
-  const pricePrefix = uniquePrices.size > 1 ? 'от ' : '';
-
   return {
     minPrice,
     oldPrice: hasDiscount ? oldPrice : null,
-    discountPercent,
-    pricePrefix
+    discountPercent: hasDiscount ? getModelDiscountPercent(model) : 0,
+    pricePrefix: ''
   };
 }
 
@@ -1125,10 +1146,17 @@ function getModelInStock(modelId) {
 }
 
 function getModelPriceRange(modelId) {
-  const purchasable = getProductsByModel(modelId).filter(isProductPurchasable);
-  const list = purchasable.length ? purchasable : getProductsByModel(modelId);
-  if (!list.length) return null;
-  const prices = list.map(p => Number(p.price) || 0);
+  const info = getModelPriceInfo(modelId);
+  if (info.minPrice == null) return null;
+  return `${info.minPrice} сом`;
+}
+
+function getBrandPriceRange(categoryId) {
+  const models = getModelsByBrand(categoryId);
+  const prices = models
+    .map(m => Number(m.price))
+    .filter(p => Number.isFinite(p) && p >= 1);
+  if (!prices.length) return null;
   const min = Math.min(...prices);
   const max = Math.max(...prices);
   return min === max ? `${min} сом` : `от ${min} сом`;
@@ -1140,16 +1168,6 @@ function pluralModels(n) {
   if (mod10 === 1 && mod100 !== 11) return 'модель';
   if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return 'модели';
   return 'моделей';
-}
-
-function getBrandPriceRange(categoryId) {
-  const purchasable = getProductsByCategory(categoryId).filter(isProductPurchasable);
-  const list = purchasable.length ? purchasable : getProductsByCategory(categoryId);
-  if (!list.length) return null;
-  const prices = list.map(p => Number(p.price) || 0);
-  const min = Math.min(...prices);
-  const max = Math.max(...prices);
-  return min === max ? `${min} сом` : `от ${min} сом`;
 }
 
 function getBrandInStockCount(categoryId) {
@@ -1190,6 +1208,7 @@ async function initShop(attempt = 1) {
     state.products = products;
     state.categories = categories;
     state.models = Array.isArray(models) ? models : [];
+    refreshCartPrices();
     state.selectedCategoryId = null;
     state.catalogSearchQuery = '';
     const searchInput = document.getElementById('catalogSearch');
@@ -1228,6 +1247,7 @@ async function loadProducts(attempt = 1) {
     state.products = products;
     state.categories = categories;
     state.models = Array.isArray(models) ? models : [];
+    refreshCartPrices();
     renderCategoryChips();
     if (state.selectedCategoryId) renderCatalog();
     else showCategoriesView();
@@ -1285,6 +1305,8 @@ function getFilteredCatalogProducts() {
 }
 
 function getProductDiscountPercent(product) {
+  const model = getModelRecord(product?.modelId);
+  if (model) return getModelDiscountPercent(model);
   const price = Number(product.price) || 0;
   const oldPrice = Number(product.oldPrice);
   if (oldPrice && oldPrice > price) {
@@ -1336,8 +1358,9 @@ function backToCategories() {
 }
 
 function formatProductPriceHtml(product) {
-  const price = Number(product.price) || 0;
-  const oldPrice = Number(product.oldPrice);
+  const price = getProductModelPrice(product);
+  const model = getModelRecord(product?.modelId);
+  const oldPrice = model?.oldPrice != null ? Number(model.oldPrice) : Number(product.oldPrice);
   if (oldPrice && oldPrice > price) {
     return `<span class="price-old">${oldPrice} сом</span><span class="price-current">${price} сом</span>`;
   }
@@ -1567,9 +1590,10 @@ function addSelectedFlavorToCart() {
       return;
     }
     existing.qty += 1;
+    existing.price = getProductModelPrice(product);
     showToast('Количество обновлено ✓', 'success');
   } else {
-    state.cart.push({ ...product, qty: 1 });
+    state.cart.push(cartItemFromProduct(product));
     showToast('Добавлено в корзину ✓', 'success');
   }
   updateCartUI();
@@ -1599,7 +1623,7 @@ function toggleCart(productId) {
     state.cart = state.cart.filter(c => c.id !== productId);
     showToast('Убрано из корзины');
   } else {
-    state.cart.push({ ...product, qty: 1 });
+    state.cart.push(cartItemFromProduct(product));
     showToast('Добавлено в корзину ✓', 'success');
   }
   updateCartUI();
@@ -1615,6 +1639,8 @@ function changeQty(productId, delta) {
     showToast('Нельзя добавить больше', 'error');
     return;
   }
+
+  if (product) item.price = getProductModelPrice(product);
 
   item.qty += delta;
   if (item.qty <= 0) {
@@ -1676,7 +1702,7 @@ function openBuyModal(productId) {
   if (buyCb) buyCb.checked = false;
 
   refreshUserBalance().then(() => {
-    updateBalanceToggleUI('buy', product.price);
+    updateBalanceToggleUI('buy', getProductModelPrice(product));
     updateBuyOrderTotals();
   });
 
@@ -1701,7 +1727,8 @@ async function submitBuyOrder(e) {
 
   const tgUser = tg?.initDataUnsafe?.user;
   const categoryName = getCategoryName(product.categoryId);
-  const payment = calcOrderPayment(product.price, state.buyUseBalance);
+  const unitPrice = getProductModelPrice(product);
+  const payment = calcOrderPayment(unitPrice, state.buyUseBalance);
   const orderData = {
     userId: tgUser?.id || null,
     userName: tgUser ? `${tgUser.first_name || ''} ${tgUser.last_name || ''}`.trim() : 'Аноним',
@@ -1717,7 +1744,7 @@ async function submitBuyOrder(e) {
       description: product.description || product.name,
       categoryId: product.categoryId,
       categoryName,
-      price: product.price,
+      price: unitPrice,
       qty: 1
     }],
     total: payment.subtotal,
@@ -2810,6 +2837,67 @@ function onAdminModelsFilterChange(brandId) {
   renderAdminModels();
 }
 
+function populateAdminProductsFilterSelects() {
+  const brandSelect = document.getElementById('adminProductsFilterBrand');
+  const modelSelect = document.getElementById('adminProductsFilterModel');
+  if (!brandSelect || !modelSelect) return;
+
+  const brandCurrent = state.adminProductsFilterBrandId || brandSelect.value;
+  brandSelect.innerHTML = '<option value="">Все бренды</option>' +
+    state.categories.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
+  brandSelect.value = brandCurrent || '';
+  state.adminProductsFilterBrandId = brandSelect.value;
+
+  const models = brandCurrent
+    ? getModelsByBrand(brandCurrent)
+    : state.models;
+  const modelCurrent = state.adminProductsFilterModelId || modelSelect.value;
+  modelSelect.innerHTML = '<option value="">Все модели</option>' +
+    models.map(m => `<option value="${m.id}">${escapeHtml(m.name)} (${escapeHtml(getCategoryName(m.brandId))})</option>`).join('');
+  if (modelCurrent && models.some(m => String(m.id) === String(modelCurrent))) {
+    modelSelect.value = modelCurrent;
+  } else {
+    modelSelect.value = '';
+    state.adminProductsFilterModelId = '';
+  }
+
+  const flavorInput = document.getElementById('adminProductsFilterFlavor');
+  if (flavorInput && flavorInput.value !== state.adminProductsFilterFlavor) {
+    flavorInput.value = state.adminProductsFilterFlavor || '';
+  }
+}
+
+function onAdminProductsFilterChange() {
+  const prevBrand = state.adminProductsFilterBrandId;
+  state.adminProductsFilterBrandId = document.getElementById('adminProductsFilterBrand')?.value || '';
+  if (state.adminProductsFilterBrandId !== prevBrand) {
+    state.adminProductsFilterModelId = '';
+  } else {
+    state.adminProductsFilterModelId = document.getElementById('adminProductsFilterModel')?.value || '';
+  }
+  state.adminProductsFilterFlavor = document.getElementById('adminProductsFilterFlavor')?.value || '';
+  populateAdminProductsFilterSelects();
+  renderAdminProducts();
+}
+
+function getFilteredAdminProducts() {
+  let list = state.products;
+  if (state.adminProductsFilterBrandId) {
+    list = list.filter(p => Number(p.categoryId) === Number(state.adminProductsFilterBrandId));
+  }
+  if (state.adminProductsFilterModelId) {
+    list = list.filter(p => Number(p.modelId) === Number(state.adminProductsFilterModelId));
+  }
+  const q = (state.adminProductsFilterFlavor || '').trim().toLowerCase();
+  if (q) {
+    list = list.filter(p =>
+      (p.name || '').toLowerCase().includes(q) ||
+      (p.description || '').toLowerCase().includes(q)
+    );
+  }
+  return list;
+}
+
 async function loadAdminProducts() {
   try {
     const [products, categories, models] = await Promise.all([
@@ -2821,6 +2909,7 @@ async function loadAdminProducts() {
     state.categories = categories;
     state.models = Array.isArray(models) ? models : [];
     populateCategorySelects();
+    populateAdminProductsFilterSelects();
     renderAdminCategories();
     renderAdminModels();
     renderAdminProducts();
@@ -2886,7 +2975,7 @@ function renderAdminModels() {
         onclick="changeModelPhoto(${model.id})" title="Нажмите чтобы изменить фото"
         onerror="this.src='/img/placeholder.svg'">
       <div class="admin-category-name" id="modelNameDisplay_${model.id}">${escapeHtml(model.name)}</div>
-      <span class="admin-category-count">${escapeHtml(getCategoryName(model.brandId))} · ${count} вкус(ов)</span>
+      <span class="admin-category-count">${formatModelAdminPrice(model)} · ${escapeHtml(getCategoryName(model.brandId))} · ${count} вкус(ов)</span>
       <div id="modelEditRow_${model.id}" class="inline-edit-row hidden">
         <input type="text" class="form-input" id="modelNameInput_${model.id}" value="${escapeHtml(model.name)}">
         <button class="btn-primary btn-sm" onclick="saveModelName(${model.id})">✓</button>
@@ -2900,12 +2989,62 @@ function renderAdminModels() {
           <button class="btn-primary btn-sm" onclick="saveModelBadge(${model.id})">✓</button>
         </div>
       </div>
+      <div id="modelPriceEditRow_${model.id}" class="inline-edit-row hidden" style="flex:1 1 100%;margin-top:6px">
+        <input type="number" class="form-input" id="modelPriceInput_${model.id}"
+          value="${model.price || ''}" placeholder="Цена" min="1">
+        <input type="number" class="form-input" id="modelOldPriceInput_${model.id}"
+          value="${model.oldPrice || ''}" placeholder="Старая цена" min="1">
+        <button class="btn-primary btn-sm" onclick="saveModelPrice(${model.id})">✓</button>
+        <button class="btn-sm btn-sm-grey" onclick="cancelModelPriceEdit(${model.id})">✕</button>
+      </div>
+      <button class="btn-sm btn-sm-grey" onclick="toggleModelPriceEdit(${model.id})">💰 Цена</button>
       <button class="btn-sm btn-sm-grey" onclick="changeModelPhoto(${model.id})">🖼 Фото</button>
       <button class="btn-sm btn-sm-red" onclick="toggleModelEdit(${model.id})">✏️</button>
       <button class="btn-sm btn-sm-red" onclick="deleteModel(${model.id})">🗑</button>
     `;
     list.appendChild(item);
   });
+}
+
+function formatModelAdminPrice(model) {
+  const price = Number(model?.price);
+  if (!Number.isFinite(price) || price < 1) return 'Цена не задана';
+  const oldPrice = Number(model?.oldPrice);
+  if (oldPrice && oldPrice > price) {
+    return `${price} сом (было ${oldPrice})`;
+  }
+  return `${price} сом`;
+}
+
+function toggleModelPriceEdit(id) {
+  document.getElementById(`modelPriceEditRow_${id}`)?.classList.toggle('hidden');
+}
+
+function cancelModelPriceEdit(id) {
+  const model = state.models.find(m => m.id === id);
+  document.getElementById(`modelPriceEditRow_${id}`)?.classList.add('hidden');
+  const priceInput = document.getElementById(`modelPriceInput_${id}`);
+  const oldInput = document.getElementById(`modelOldPriceInput_${id}`);
+  if (model && priceInput) priceInput.value = model.price || '';
+  if (model && oldInput) oldInput.value = model.oldPrice || '';
+}
+
+async function saveModelPrice(id) {
+  const priceInput = document.getElementById(`modelPriceInput_${id}`);
+  const oldInput = document.getElementById(`modelOldPriceInput_${id}`);
+  const price = parseInt(priceInput?.value, 10);
+  if (!price || price < 1) { showToast('Введите корректную цену', 'error'); return; }
+  const body = { price };
+  const oldVal = oldInput?.value?.trim();
+  body.oldPrice = oldVal || '';
+  try {
+    await api('PUT', `/models/${id}`, body, true);
+    showToast('Цена модели обновлена ✓', 'success');
+    await loadAdminProducts();
+    if (state.selectedCategoryId) renderCatalog();
+  } catch (err) {
+    showToast(err.message || 'Ошибка', 'error');
+  }
 }
 
 async function addModel(e) {
@@ -2917,6 +3056,8 @@ async function addModel(e) {
     || form.elements['brandId']?.value;
   if (!name) { showToast('Введите название модели', 'error'); return; }
   if (!brandId) { showToast('Выберите бренд', 'error'); return; }
+  const price = parseInt(document.getElementById('addModelPrice')?.value || form.elements['price']?.value, 10);
+  if (!price || price < 1) { showToast('Введите цену модели', 'error'); return; }
 
   const btn = form.querySelector('button[type="submit"]');
   if (btn) { btn.disabled = true; btn.textContent = 'Сохранение...'; }
@@ -2924,6 +3065,10 @@ async function addModel(e) {
   const fd = new FormData();
   fd.append('name', name);
   fd.append('brandId', brandId);
+  fd.append('price', price);
+  const oldPrice = document.getElementById('addModelOldPrice')?.value?.trim()
+    || form.elements['oldPrice']?.value?.trim();
+  if (oldPrice) fd.append('oldPrice', oldPrice);
   const badge = form.elements['badge']?.value?.trim();
   if (badge) fd.append('badge', badge);
   const fileInput = document.getElementById('addModelPhoto');
@@ -3115,12 +3260,21 @@ function renderAdminProducts() {
   const list = document.getElementById('adminProductsList');
   list.innerHTML = '';
 
+  const products = getFilteredAdminProducts();
+
   if (state.products.length === 0) {
     list.innerHTML = '<div class="empty-state"><div class="empty-icon">📦</div><div>Нет товаров</div></div>';
     return;
   }
 
-  state.products.forEach(product => {
+  if (products.length === 0) {
+    list.innerHTML = '<div class="empty-state"><div class="empty-icon">🔍</div><div>Ничего не найдено по фильтрам</div></div>';
+    return;
+  }
+
+  products.forEach(product => {
+    const model = getModelRecord(product.modelId);
+    const modelPriceLabel = model ? formatModelAdminPrice(model) : '—';
     const item = document.createElement('div');
     item.className = `admin-product-item${!product.available ? ' unavailable' : ''}`;
     item.id = `adminProduct_${product.id}`;
@@ -3132,9 +3286,7 @@ function renderAdminProducts() {
       <div class="admin-product-body">
         <div class="admin-product-name">${product.name}</div>
         <div class="admin-product-meta">
-          <span class="admin-product-price">${product.oldPrice && product.oldPrice > product.price
-            ? `<span class="price-old">${product.oldPrice}</span> ${product.price} сом`
-            : `${product.price} сом`}</span>
+          <span class="admin-product-price">Цена модели: ${modelPriceLabel}</span>
           <span class="status-pill available">${escapeHtml(getCategoryName(product.categoryId))}</span>
           <span class="status-pill available">${escapeHtml(getModelName(product.modelId))}</span>
           <span class="admin-product-sales">Продано: ${product.sales || 0}</span>
@@ -3167,16 +3319,7 @@ function renderAdminProducts() {
             ).join('')}
           </select>
         </div>
-        <div id="editRow_${product.id}" class="inline-edit-row hidden">
-          <input type="number" class="form-input" id="priceInput_${product.id}"
-            value="${product.price}" placeholder="Цена" min="1">
-          <input type="number" class="form-input" id="oldPriceInput_${product.id}"
-            value="${product.oldPrice || ''}" placeholder="Старая цена" min="1">
-          <button class="btn-primary btn-sm" onclick="savePrice(${product.id})">✓</button>
-          <button class="btn-sm btn-sm-grey" onclick="cancelEdit(${product.id})">✕</button>
-        </div>
         <div class="admin-product-actions">
-          <button class="btn-sm btn-sm-red" onclick="toggleEditPrice(${product.id})">✏️ Цена</button>
           <button class="btn-sm btn-sm-grey" onclick="changeProductPhoto(${product.id})">🖼 Фото</button>
           <button class="btn-sm ${product.available ? 'btn-sm-grey' : 'btn-sm-green'}"
             onclick="toggleAvailability(${product.id})">
@@ -3188,18 +3331,6 @@ function renderAdminProducts() {
     `;
     list.appendChild(item);
   });
-}
-
-function toggleEditPrice(id) {
-  const row = document.getElementById(`editRow_${id}`);
-  row.classList.toggle('hidden');
-  if (!row.classList.contains('hidden')) {
-    document.getElementById(`priceInput_${id}`).focus();
-  }
-}
-
-function cancelEdit(id) {
-  document.getElementById(`editRow_${id}`).classList.add('hidden');
 }
 
 async function saveStock(id) {
@@ -3214,26 +3345,6 @@ async function saveStock(id) {
     await loadAdminProducts();
     if (state.selectedCategoryId) renderCatalog();
     else showCategoriesView();
-  } catch {
-    showToast('Ошибка обновления', 'error');
-  }
-}
-
-async function savePrice(id) {
-  const input = document.getElementById(`priceInput_${id}`);
-  const oldInput = document.getElementById(`oldPriceInput_${id}`);
-  const price = parseInt(input.value);
-  if (!price || price < 1) { showToast('Введите корректную цену', 'error'); return; }
-
-  try {
-    const fd = new FormData();
-    fd.append('price', price);
-    const oldVal = oldInput?.value?.trim();
-    fd.append('oldPrice', oldVal || '');
-    await adminFormFetch('PUT', `${API}/products/${id}`, fd);
-    showToast('Цена обновлена ✓', 'success');
-    await loadAdminProducts();
-    if (state.selectedCategoryId) renderCatalog();
   } catch {
     showToast('Ошибка обновления', 'error');
   }
@@ -3391,24 +3502,24 @@ async function addProduct(e) {
   const form = e.target;
   const btn = form.querySelector('button[type="submit"]');
 
-  // Validate
   const name  = form.elements['name']?.value?.trim();
-  const price = parseInt(form.elements['price']?.value);
   const categoryId = form.elements['categoryId']?.value;
   const modelId = form.elements['modelId']?.value;
   if (!name)          { showToast('Введите название', 'error'); return; }
-  if (!price || price < 1) { showToast('Введите цену', 'error'); return; }
   if (!categoryId) { showToast('Выберите бренд', 'error'); return; }
   if (!modelId) { showToast('Выберите модель', 'error'); return; }
 
+  const model = getModelRecord(modelId);
+  if (!model?.price || model.price < 1) {
+    showToast('Сначала укажите цену у модели', 'error');
+    return;
+  }
+
   const fd = new FormData();
   fd.append('name',  name);
-  fd.append('price', price);
   fd.append('categoryId', categoryId);
   fd.append('modelId', modelId);
   fd.append('description', form.elements['description']?.value?.trim() || '');
-  const oldPrice = form.elements['oldPrice']?.value?.trim();
-  if (oldPrice) fd.append('oldPrice', oldPrice);
   const stockVal = form.elements['stock']?.value?.trim();
   if (stockVal !== undefined && stockVal !== '') fd.append('stock', stockVal);
 
