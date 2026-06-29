@@ -2073,14 +2073,28 @@ a { color: inherit; text-decoration: none; }
   overflow: hidden;
   background: var(--bg);
   cursor: pointer;
+  flex-shrink: 0;
+}
+.product-photo-media {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
 }
 .product-photo {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  display: block;
   transition: transform 0.35s ease;
 }
 .product-card:hover .product-photo { transform: scale(1.05); }
+
+.product-photo-badges {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
 
 .product-badge {
   position: absolute;
@@ -2089,8 +2103,8 @@ a { color: inherit; text-decoration: none; }
   padding: 4px 8px;
   border-radius: 7px;
   letter-spacing: 0.02em;
-  z-index: 2;
   line-height: 1.2;
+  pointer-events: none;
 }
 .product-badge-discount {
   top: 8px;
@@ -2159,6 +2173,7 @@ a { color: inherit; text-decoration: none; }
 .out-of-stock-overlay {
   position: absolute;
   inset: 0;
+  z-index: 3;
   background: rgba(0,0,0,0.7);
   display: flex;
   align-items: center;
@@ -2169,11 +2184,14 @@ a { color: inherit; text-decoration: none; }
 }
 
 .product-info {
+  position: relative;
+  z-index: 1;
   padding: 10px 10px 8px;
   flex: 1;
   display: flex;
   flex-direction: column;
   gap: 6px;
+  min-width: 0;
 }
 .product-name {
   font-size: 13px;
@@ -3394,15 +3412,6 @@ a { color: inherit; text-decoration: none; }
 @keyframes skeletonShimmer {
   0%   { background-position: 200% 0; }
   100% { background-position: -200% 0; }
-}
-
-.product-photo-wrap {
-  position: relative;
-}
-
-.product-photo {
-  position: relative;
-  z-index: 2;
 }
 
 /* ═══════════════════════════════════════════════════════════════

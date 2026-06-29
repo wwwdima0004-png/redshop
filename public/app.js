@@ -1383,15 +1383,19 @@ function renderCatalog() {
     const photoWrap = document.createElement('div');
     photoWrap.className = 'product-photo-wrap';
     photoWrap.innerHTML = `
-      <img class="product-photo" src="${photoSrc}" alt="${escapeHtml(displayName)}"
-        loading="lazy" onerror="this.src='/img/placeholder.svg'">
-      ${priceInfo.discountPercent > 0
-        ? `<span class="product-badge product-badge-discount">−${priceInfo.discountPercent}%</span>`
-        : ''}
-      ${model.badge
-        ? `<span class="product-badge product-badge-model">${escapeHtml(model.badge)}</span>`
-        : ''}
-      <span class="product-badge product-badge-stock ${inStock ? '' : 'out'}">${inStock ? 'В наличии' : 'Нет в наличии'}</span>
+      <div class="product-photo-media">
+        <img class="product-photo" src="${photoSrc}" alt="${escapeHtml(displayName)}"
+          loading="lazy" onerror="this.src='/img/placeholder.svg'">
+      </div>
+      <div class="product-photo-badges">
+        ${priceInfo.discountPercent > 0
+          ? `<span class="product-badge product-badge-discount">−${priceInfo.discountPercent}%</span>`
+          : ''}
+        ${model.badge
+          ? `<span class="product-badge product-badge-model">${escapeHtml(model.badge)}</span>`
+          : ''}
+        <span class="product-badge product-badge-stock ${inStock ? '' : 'out'}">${inStock ? 'В наличии' : 'Нет в наличии'}</span>
+      </div>
       ${!inStock ? '<div class="out-of-stock-overlay">Нет в наличии</div>' : ''}
     `;
     photoWrap.addEventListener('click', () => openFlavorModal(model.id));
