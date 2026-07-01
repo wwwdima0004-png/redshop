@@ -3874,14 +3874,11 @@ async function sendBroadcast() {
   if (photoInput.files[0]) fd.append('photo', photoInput.files[0]);
 
   try {
-    const res = await fetch(`${API}/broadcast`, {
-      method: 'POST',
-      headers: { 'x-admin-password': state.adminPassword },
-      body: fd
-    });
-    const data = await res.json();
+    const data = await adminFormFetch('POST', `${API}/broadcast`, fd);
+    let msg = `✅ Отправлено: ${data.sent ?? 0} из ${data.total ?? 0} пользователей`;
+    if ((data.failed ?? 0) > 0) msg += ` (не доставлено: ${data.failed})`;
     result.className = 'broadcast-result success';
-    result.textContent = `✅ Отправлено: ${data.sent} из ${data.total} пользователей`;
+    result.textContent = msg;
     result.classList.remove('hidden');
     document.getElementById('broadcastText').value = '';
     photoInput.value = '';

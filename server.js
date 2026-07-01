@@ -1978,25 +1978,32 @@ app.post('/api/messages/send', requireAdmin, (req, res) => {
 app.post('/api/broadcast', requireAdmin, upload.single('photo'), async (req, res) => {
   const { text } = req.body;
   if (!text) return res.status(400).json({ error: 'Текст обязателен' });
+  if (!bot) return res.status(503).json({ error: 'Бот не запущен' });
 
   const users = readJSON('users.json');
-  let sent = 0, failed = 0;
+  const list = Array.isArray(users) ? users : [];
+  let sent = 0;
+  let failed = 0;
+  const photoPath = req.file
+    ? path.join(__dirname, 'public', 'uploads', req.file.filename)
+    : null;
 
-  for (const user of users) {
+  for (const user of list) {
     try {
-      if (req.file) {
-        await bot.sendPhoto(user.id, path.join(__dirname, 'public', 'uploads', req.file.filename), { caption: text });
+      if (photoPath) {
+        await bot.sendPhoto(user.id, fs.createReadStream(photoPath), { caption: text });
       } else {
         await bot.sendMessage(user.id, text);
       }
       sent++;
       await new Promise(r => setTimeout(r, 50)); // rate limit
-    } catch {
+    } catch (err) {
       failed++;
+      console.error(`Broadcast failed for user ${user.id}:`, err.message || err);
     }
   }
 
-  res.json({ ok: true, sent, failed, total: users.length });
+  res.json({ ok: true, sent, failed, total: list.length });
 });
 
 // Stats
