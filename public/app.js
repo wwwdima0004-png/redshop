@@ -401,9 +401,16 @@ function getTelegramInitData() {
 
 const ORDER_STATUS_LABELS = {
   new: 'Новый',
-  processing: 'В обработке',
-  done: 'Выполнен'
+  done: 'Выполнено',
+  defect: 'Брак',
+  cancel: 'Отмена'
 };
+
+function normalizeOrderStatus(status) {
+  if (status === 'processing') return 'new';
+  if (ORDER_STATUS_LABELS[status]) return status;
+  return 'new';
+}
 
 function getTelegramUser() {
   return tg?.initDataUnsafe?.user || null;
@@ -790,8 +797,8 @@ function renderMyOrders(orders) {
 
   orders.forEach(order => {
     const card = document.createElement('div');
-    card.className = `my-order-card status-${order.status || 'new'}`;
-    const statusLabel = ORDER_STATUS_LABELS[order.status] || order.status || '—';
+    card.className = `my-order-card status-${normalizeOrderStatus(order.status)}`;
+    const statusLabel = ORDER_STATUS_LABELS[normalizeOrderStatus(order.status)] || order.status || '—';
     const itemsHtml = (order.items || [])
       .map(i => `<li>${escapeHtml(i.name)} ×${i.qty || 1}</li>`)
       .join('');
@@ -935,10 +942,18 @@ function getProductStock(product) {
   return Math.max(0, Math.round(Number(product?.stock) || 0));
 }
 
+function getProductReserved(product) {
+  return Math.max(0, Math.round(Number(product?.reserved) || 0));
+}
+
+function getAvailableStock(product) {
+  return Math.max(0, getProductStock(product) - getProductReserved(product));
+}
+
 function isProductPurchasable(product) {
   if (!product) return false;
   if (product.available === false) return false;
-  return getProductStock(product) > 0;
+  return getAvailableStock(product) > 0;
 }
 
 function getProductsByModel(modelId) {
@@ -1582,7 +1597,7 @@ function addSelectedFlavorToCart() {
     return;
   }
 
-  const stock = getProductStock(product);
+  const stock = getAvailableStock(product);
   const existing = state.cart.find(c => c.id === productId);
   if (existing) {
     if (existing.qty >= stock) {
@@ -1633,7 +1648,7 @@ function changeQty(productId, delta) {
   const item = state.cart.find(c => c.id === productId);
   if (!item) return;
   const product = state.products.find(p => p.id === productId);
-  const stock = getProductStock(product);
+  const stock = getAvailableStock(product);
 
   if (delta > 0 && item.qty >= stock) {
     showToast('Нельзя добавить больше', 'error');
@@ -3293,7 +3308,7 @@ function renderAdminProducts() {
           <span class="status-pill ${isProductPurchasable(product) ? 'available' : 'unavailable'}">
             ${isProductPurchasable(product) ? 'В наличии' : 'Нет в наличии'}
           </span>
-          <span class="admin-product-sales">Остаток: ${getProductStock(product)} шт</span>
+          <span class="admin-product-sales">Остаток: ${getProductStock(product)} шт${getProductReserved(product) ? ` (резерв: ${getProductReserved(product)})` : ''}</span>
         </div>
         <div class="form-group" style="margin-top:8px">
           <label style="font-size:11px;color:var(--grey)">Остаток (шт)</label>
@@ -3590,7 +3605,7 @@ function renderOrders() {
 
   const filtered = state.ordersFilter === 'all'
     ? allOrders
-    : allOrders.filter(o => o.status === state.ordersFilter);
+    : allOrders.filter(o => normalizeOrderStatus(o.status) === state.ordersFilter);
 
   if (filtered.length === 0) {
     empty.classList.remove('hidden');
@@ -3600,7 +3615,8 @@ function renderOrders() {
 
   filtered.forEach(order => {
     const card = document.createElement('div');
-    card.className = `order-card status-${order.status}`;
+    const orderStatus = normalizeOrderStatus(order.status);
+    card.className = `order-card status-${orderStatus}`;
     const date = new Date(order.createdAt).toLocaleString('ru-RU', {
       day: '2-digit', month: '2-digit', year: '2-digit',
       hour: '2-digit', minute: '2-digit'
@@ -3614,7 +3630,6 @@ function renderOrders() {
       ? `<div class="order-contact">
           ${order.phone ? `<div>📞 ${escapeHtml(order.phone)}</div>` : ''}
           ${order.address ? `<div>📍 ${escapeHtml(order.address)}</div>` : ''}
-          ${order.comment ? `<div>💬 ${escapeHtml(order.comment)}</div>` : ''}
         </div>`
       : '';
 
@@ -3629,15 +3644,21 @@ function renderOrders() {
       </div>
       <div class="order-items">📦 ${itemsText}</div>
       ${contactBlock}
+      <div class="order-comment-row">
+        <label class="order-comment-label">💬 Комментарий${orderStatus === 'cancel' ? ' (обязателен при отмене)' : ''}</label>
+        <textarea class="order-comment-input" id="orderComment_${order.id}" rows="2" placeholder="Комментарий к заказу">${escapeHtml(order.comment || '')}</textarea>
+        <button type="button" class="btn-sm btn-sm-grey order-comment-save" onclick="saveOrderComment(${order.id})">Сохранить комментарий</button>
+      </div>
       <div class="order-footer">
         <div>
           <div class="order-total">${order.finalTotal} сом</div>
           ${order.discount ? `<div class="order-discount">Скидка: −${order.discount} сом</div>` : ''}
         </div>
-        <select class="order-status-select" onchange="updateOrderStatus(${order.id}, this.value)">
-          <option value="new" ${order.status==='new'?'selected':''}>🆕 Новый</option>
-          <option value="processing" ${order.status==='processing'?'selected':''}>⏳ В обработке</option>
-          <option value="done" ${order.status==='done'?'selected':''}>✅ Выполнен</option>
+        <select class="order-status-select" onchange="updateOrderStatus(${order.id}, this.value, this)">
+          <option value="new" ${orderStatus==='new'?'selected':''}>🆕 Новый</option>
+          <option value="done" ${orderStatus==='done'?'selected':''}>✅ Выполнено</option>
+          <option value="defect" ${orderStatus==='defect'?'selected':''}>⚠️ Брак</option>
+          <option value="cancel" ${orderStatus==='cancel'?'selected':''}>❌ Отмена</option>
         </select>
       </div>
     `;
@@ -3645,16 +3666,44 @@ function renderOrders() {
   });
 }
 
-async function updateOrderStatus(orderId, status) {
+async function saveOrderComment(orderId) {
+  const commentEl = document.getElementById(`orderComment_${orderId}`);
+  const comment = commentEl ? commentEl.value.trim() : '';
   try {
-    await api('PUT', `/orders/${orderId}/status`, { status }, true);
+    const updated = await api('PUT', `/orders/${orderId}/comment`, { comment }, true);
     const order = allOrders.find(o => o.id === orderId);
-    if (order) order.status = status;
+    if (order) order.comment = updated.comment || comment;
+    showToast('Комментарий сохранён ✓', 'success');
+  } catch (err) {
+    showToast(err.message || 'Ошибка сохранения комментария', 'error');
+  }
+}
+
+async function updateOrderStatus(orderId, status, selectEl) {
+  const order = allOrders.find(o => o.id === orderId);
+  const prevStatus = normalizeOrderStatus(order?.status);
+  const commentEl = document.getElementById(`orderComment_${orderId}`);
+  const comment = commentEl ? commentEl.value.trim() : String(order?.comment || '').trim();
+
+  if (status === 'cancel' && !comment) {
+    showToast('Для отмены заказа укажите комментарий', 'error');
+    if (selectEl) selectEl.value = prevStatus;
+    commentEl?.focus();
+    return;
+  }
+
+  try {
+    const updated = await api('PUT', `/orders/${orderId}/status`, { status, comment }, true);
+    if (order) {
+      order.status = updated.status || status;
+      order.comment = updated.comment ?? comment;
+    }
     renderOrders();
     updateNewOrdersBadge();
     showToast('Статус обновлён ✓', 'success');
-  } catch {
-    showToast('Ошибка обновления статуса', 'error');
+  } catch (err) {
+    if (selectEl) selectEl.value = prevStatus;
+    showToast(err.message || 'Ошибка обновления статуса', 'error');
   }
 }
 

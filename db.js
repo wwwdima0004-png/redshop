@@ -64,6 +64,7 @@ function createSchema(database) {
       available INTEGER NOT NULL DEFAULT 1,
       sales INTEGER NOT NULL DEFAULT 0,
       stock INTEGER NOT NULL DEFAULT 0,
+      reserved INTEGER NOT NULL DEFAULT 0,
       description TEXT NOT NULL DEFAULT ''
     );
 
@@ -117,6 +118,13 @@ function createSchema(database) {
       data TEXT NOT NULL DEFAULT '[]'
     );
   `);
+}
+
+function runSchemaMigrations(database) {
+  const cols = database.prepare('PRAGMA table_info(products)').all();
+  if (!cols.some(c => c.name === 'reserved')) {
+    database.exec('ALTER TABLE products ADD COLUMN reserved INTEGER NOT NULL DEFAULT 0');
+  }
 }
 
 function isDatabaseEmpty(database) {
@@ -187,8 +195,8 @@ function importFromJsonFiles(database) {
     if (Array.isArray(products) && products.length) {
       const stmt = database.prepare(`
         INSERT OR REPLACE INTO products
-        (id, name, price, oldPrice, categoryId, modelId, photo, available, sales, stock, description)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, name, price, oldPrice, categoryId, modelId, photo, available, sales, stock, reserved, description)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       products.forEach(p => {
         stmt.run(
@@ -202,6 +210,7 @@ function importFromJsonFiles(database) {
           boolToInt(p.available !== false),
           Number(p.sales) || 0,
           Number(p.stock) || 0,
+          Number(p.reserved) || 0,
           p.description || ''
         );
         imported.products++;
@@ -336,6 +345,7 @@ function initDatabase(options = {}) {
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   createSchema(db);
+  runSchemaMigrations(db);
 
   if (isDatabaseEmpty(db)) {
     const stats = importFromJsonFiles(db);
@@ -380,6 +390,7 @@ function rowToProduct(row) {
     available: intToBool(row.available),
     sales: row.sales,
     stock: row.stock,
+    reserved: Number(row.reserved) || 0,
     description: row.description
   };
   if (row.oldPrice != null) p.oldPrice = row.oldPrice;
@@ -493,8 +504,8 @@ function saveProducts(list) {
     database.prepare('DELETE FROM products').run();
     const stmt = database.prepare(`
       INSERT INTO products
-      (id, name, price, oldPrice, categoryId, modelId, photo, available, sales, stock, description)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (id, name, price, oldPrice, categoryId, modelId, photo, available, sales, stock, reserved, description)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     items.forEach(p => {
       stmt.run(
@@ -508,6 +519,7 @@ function saveProducts(list) {
         boolToInt(p.available !== false),
         Number(p.sales) || 0,
         Number(p.stock) || 0,
+        Number(p.reserved) || 0,
         p.description || ''
       );
     });

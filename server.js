@@ -63,6 +63,141 @@ function ensureDataFiles() {
   migrateUsersBalance();
   migrateUsersReferrer();
   migrateUsersNotifications();
+  migrateOrdersStatusesAndReservation();
+}
+
+const ORDER_STATUSES = ['new', 'done', 'defect', 'cancel'];
+
+const ORDER_STATUS_NOTIFY_LABELS = {
+  new: 'Новый 🆕',
+  done: 'Выполнено ✅',
+  defect: 'Брак ⚠️',
+  cancel: 'Отмена ❌'
+};
+
+function normalizeOrderStatus(status) {
+  if (status === 'processing') return 'new';
+  if (ORDER_STATUSES.includes(status)) return status;
+  return 'new';
+}
+
+function normalizeProductReserved(product) {
+  return Math.max(0, Math.round(Number(product?.reserved) || 0));
+}
+
+function normalizeProductStock(product) {
+  return Math.max(0, Math.round(Number(product?.stock) || 0));
+}
+
+function getAvailableStock(product) {
+  return Math.max(0, normalizeProductStock(product) - normalizeProductReserved(product));
+}
+
+function isProductPurchasable(product) {
+  if (!product) return false;
+  if (product.available === false) return false;
+  return getAvailableStock(product) > 0;
+}
+
+function syncProductAvailability(prod) {
+  if (getAvailableStock(prod) <= 0) prod.available = false;
+}
+
+function applyProductInventoryDelta(prod, { stockDelta = 0, reservedDelta = 0, salesDelta = 0 }) {
+  prod.stock = Math.max(0, normalizeProductStock(prod) + stockDelta);
+  prod.reserved = Math.max(0, normalizeProductReserved(prod) + reservedDelta);
+  prod.sales = Math.max(0, (Number(prod.sales) || 0) + salesDelta);
+  syncProductAvailability(prod);
+}
+
+function getInventoryTransitionDeltas(fromStatus, toStatus, qty) {
+  const from = normalizeOrderStatus(fromStatus);
+  const to = normalizeOrderStatus(toStatus);
+  const q = Math.max(0, Math.round(Number(qty) || 0));
+  if (!q || from === to) return { stockDelta: 0, reservedDelta: 0, salesDelta: 0 };
+
+  let stockDelta = 0;
+  let reservedDelta = 0;
+  let salesDelta = 0;
+
+  if (from === 'new' && (to === 'done' || to === 'defect')) {
+    stockDelta -= q;
+    reservedDelta -= q;
+    salesDelta += q;
+  } else if (from === 'new' && to === 'cancel') {
+    reservedDelta -= q;
+  } else if (from === 'cancel' && to === 'new') {
+    reservedDelta += q;
+  } else if (from === 'cancel' && (to === 'done' || to === 'defect')) {
+    stockDelta -= q;
+    salesDelta += q;
+  } else if ((from === 'done' || from === 'defect') && to === 'cancel') {
+    stockDelta += q;
+    salesDelta -= q;
+  } else if ((from === 'done' || from === 'defect') && to === 'new') {
+    stockDelta += q;
+    reservedDelta += q;
+    salesDelta -= q;
+  }
+
+  return { stockDelta, reservedDelta, salesDelta };
+}
+
+function applyOrderItemsInventory(products, items, deltaFn) {
+  (items || []).forEach(item => {
+    const prod = products.find(p => Number(p.id) === Number(item.id));
+    if (!prod) return;
+    const qty = Math.max(0, Math.round(Number(item.qty) || 0));
+    if (!qty) return;
+    deltaFn(prod, qty);
+  });
+}
+
+function reserveOrderItems(products, items) {
+  applyOrderItemsInventory(products, items, (prod, qty) => {
+    applyProductInventoryDelta(prod, { reservedDelta: qty });
+  });
+}
+
+function applyOrderStatusInventory(products, order, fromStatus, toStatus) {
+  applyOrderItemsInventory(products, order.items, (prod, qty) => {
+    const deltas = getInventoryTransitionDeltas(fromStatus, toStatus, qty);
+    applyProductInventoryDelta(prod, deltas);
+  });
+}
+
+function migrateOrdersStatusesAndReservation() {
+  const orders = readJSON('orders.json');
+  const products = readJSON('products.json');
+  if (!Array.isArray(orders)) return;
+
+  let ordersChanged = false;
+  let productsChanged = false;
+
+  orders.forEach(order => {
+    const prevStatus = order.status;
+    const normalized = normalizeOrderStatus(order.status);
+    if (order.status !== normalized) {
+      order.status = normalized;
+      ordersChanged = true;
+    }
+
+    if (order.reservationMigrated) return;
+
+    if (normalized === 'new') {
+      applyOrderItemsInventory(products, order.items, (prod, qty) => {
+        prod.stock = normalizeProductStock(prod) + qty;
+        applyProductInventoryDelta(prod, { reservedDelta: qty });
+        productsChanged = true;
+      });
+    }
+
+    order.reservationMigrated = true;
+    ordersChanged = true;
+  });
+
+  if (productsChanged) writeJSON('products.json', products);
+  if (ordersChanged) writeJSON('orders.json', orders);
 }
 
 function defaultSettings() {
@@ -712,10 +847,10 @@ function validateOrderItems(rawItems) {
       const label = product.description || product.name;
       return { error: `«${label}» нет в наличии`, status: 400 };
     }
-    const stock = normalizeProductStock(product);
-    if (stock < qty) {
+    const available = getAvailableStock(product);
+    if (available < qty) {
       const label = product.description || product.name;
-      return { error: `Недостаточно «${label}» (осталось ${stock} шт)`, status: 400 };
+      return { error: `Недостаточно «${label}» в наличии`, status: 400 };
     }
 
     const price = getProductModelPrice(product, models);
@@ -825,18 +960,12 @@ function buildValidatedOrder(orderInput) {
 
 function persistOrder(order) {
   const orders = readJSON('orders.json');
+  order.reservationMigrated = true;
   orders.push(order);
   writeJSON('orders.json', orders);
 
   const products = readJSON('products.json');
-  (order.items || []).forEach(item => {
-    const prod = products.find(p => Number(p.id) === Number(item.id));
-    if (prod) {
-      prod.sales = (prod.sales || 0) + (item.qty || 1);
-      prod.stock = Math.max(0, normalizeProductStock(prod) - (item.qty || 1));
-      if (prod.stock <= 0) prod.available = false;
-    }
-  });
+  reserveOrderItems(products, order.items);
   writeJSON('products.json', products);
 
   if (order.userId) clearUserCart(order.userId);
@@ -871,29 +1000,26 @@ function getUserBalance(userId) {
   return u && typeof u.balance === 'number' ? u.balance : null;
 }
 
-function normalizeProductStock(product) {
-  return Math.max(0, Math.round(Number(product?.stock) || 0));
-}
-
-function isProductPurchasable(product) {
-  if (!product) return false;
-  if (product.available === false) return false;
-  return normalizeProductStock(product) > 0;
-}
-
 function migrateProductsStock() {
   const products = readJSON('products.json');
   if (!Array.isArray(products)) return;
   let changed = false;
   products.forEach(p => {
+    if (typeof p.reserved !== 'number' || Number.isNaN(p.reserved)) {
+      p.reserved = 0;
+      changed = true;
+    }
     if (typeof p.stock !== 'number' || Number.isNaN(p.stock)) {
       p.stock = p.available === false ? 0 : 10;
       changed = true;
     }
-    if (p.stock <= 0 && p.available !== false) {
-      p.available = false;
+    if (p.reserved > p.stock) {
+      p.reserved = p.stock;
       changed = true;
     }
+    const before = p.available;
+    syncProductAvailability(p);
+    if (p.available !== before) changed = true;
   });
   if (changed) writeJSON('products.json', products);
 }
@@ -1707,15 +1833,47 @@ app.put('/api/orders/:id/status', requireAdmin, (req, res) => {
   const orders = readJSON('orders.json');
   const order = orders.find(o => o.id === parseInt(req.params.id));
   if (!order) return res.status(404).json({ error: 'Заказ не найден' });
-  order.status = req.body.status;
-  writeJSON('orders.json', orders);
 
-  // Notify customer
-  if (bot && order.userId) {
-    const labels = { processing: 'В обработке ⏳', done: 'Выполнен ✅', new: 'Новый 🆕' };
-    bot.sendMessage(order.userId, `Статус вашего заказа #${order.id} изменён: ${labels[order.status] || order.status}`).catch(() => {});
+  const newStatus = normalizeOrderStatus(req.body.status);
+  if (!ORDER_STATUSES.includes(newStatus)) {
+    return res.status(400).json({ error: 'Недопустимый статус заказа' });
   }
 
+  const commentProvided = req.body.comment !== undefined;
+  const nextComment = commentProvided
+    ? String(req.body.comment || '').trim()
+    : String(order.comment || '').trim();
+
+  if (newStatus === 'cancel' && !nextComment) {
+    return res.status(400).json({ error: 'Для отмены заказа укажите комментарий' });
+  }
+
+  const prevStatus = normalizeOrderStatus(order.status);
+  if (prevStatus !== newStatus) {
+    const products = readJSON('products.json');
+    applyOrderStatusInventory(products, order, prevStatus, newStatus);
+    writeJSON('products.json', products);
+  }
+
+  order.status = newStatus;
+  if (commentProvided) order.comment = nextComment;
+  writeJSON('orders.json', orders);
+
+  if (bot && order.userId) {
+    const label = ORDER_STATUS_NOTIFY_LABELS[newStatus] || newStatus;
+    bot.sendMessage(order.userId, `Статус вашего заказа #${order.id} изменён: ${label}`).catch(() => {});
+  }
+
+  res.json(order);
+});
+
+app.put('/api/orders/:id/comment', requireAdmin, (req, res) => {
+  const orders = readJSON('orders.json');
+  const order = orders.find(o => o.id === parseInt(req.params.id));
+  if (!order) return res.status(404).json({ error: 'Заказ не найден' });
+
+  order.comment = String(req.body?.comment || '').trim();
+  writeJSON('orders.json', orders);
   res.json(order);
 });
 
