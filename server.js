@@ -20,31 +20,16 @@ const ADMIN_PASSWORDS = [
 
 // ─── Data helpers ────────────────────────────────────────────────────────────
 
-const DATA_DIR = path.join(__dirname, 'data');
+const db = require('./db');
+
+const DATA_DIR = db.DATA_DIR;
 
 function readJSON(file) {
-  const fp = path.join(DATA_DIR, file);
-  const isMessages = file.endsWith('messages.json');
-  const isBanner = file.endsWith('banner.json');
-  if (!fs.existsSync(fp)) return isMessages ? {} : [];
-  try {
-    const parsed = JSON.parse(fs.readFileSync(fp, 'utf8'));
-    if (isMessages) {
-      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
-    }
-    if (isBanner) {
-      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
-    }
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    if (isMessages) return {};
-    if (isBanner) return null;
-    return [];
-  }
+  return db.readJSON(file);
 }
 
 function writeJSON(file, data) {
-  fs.writeFileSync(path.join(DATA_DIR, file), JSON.stringify(data, null, 2), 'utf8');
+  db.writeJSON(file, data);
 }
 
 function ensureDataFiles() {
@@ -52,50 +37,32 @@ function ensureDataFiles() {
   const uploadsDir = path.join(__dirname, 'public', 'uploads');
   if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 
-  // Восстановить products.json если файл отсутствует или пустой/сломан
-  const productsPath = path.join(DATA_DIR, 'products.json');
-  let needsDefault = false;
-  if (!fs.existsSync(productsPath)) {
-    needsDefault = true;
-  } else {
-    try {
-      const parsed = JSON.parse(fs.readFileSync(productsPath, 'utf8'));
-      if (!Array.isArray(parsed) || parsed.length === 0) needsDefault = true;
-    } catch { needsDefault = true; }
-  }
-  if (needsDefault) writeJSON('products.json', defaultProducts());
+  db.initDatabase({
+    defaultBanner: defaultBanner(),
+    defaultSettings: defaultSettings()
+  });
 
-  const categoriesPath = path.join(DATA_DIR, 'categories.json');
-  let needsDefaultCategories = false;
-  if (!fs.existsSync(categoriesPath)) {
-    needsDefaultCategories = true;
-  } else {
-    try {
-      const parsed = JSON.parse(fs.readFileSync(categoriesPath, 'utf8'));
-      if (!Array.isArray(parsed) || parsed.length === 0) needsDefaultCategories = true;
-    } catch { needsDefaultCategories = true; }
+  let products = readJSON('products.json');
+  if (!Array.isArray(products) || products.length === 0) {
+    writeJSON('products.json', defaultProducts());
   }
-  if (needsDefaultCategories) writeJSON('categories.json', defaultCategories());
 
-  const modelsPath = path.join(DATA_DIR, 'models.json');
-  if (!fs.existsSync(modelsPath)) writeJSON('models.json', []);
+  let categories = readJSON('categories.json');
+  if (!Array.isArray(categories) || categories.length === 0) {
+    writeJSON('categories.json', defaultCategories());
+  }
+
+  let models = readJSON('models.json');
+  if (!Array.isArray(models)) writeJSON('models.json', []);
 
   migrateProductsCategory();
   migrateProductsStock();
   migrateProductsModels();
   migrateModelPricesFromFlavors();
 
-  if (!fs.existsSync(path.join(DATA_DIR, 'orders.json'))) writeJSON('orders.json', []);
-  if (!fs.existsSync(path.join(DATA_DIR, 'users.json'))) writeJSON('users.json', []);
-  if (!fs.existsSync(path.join(DATA_DIR, 'messages.json'))) writeJSON('messages.json', {});
-
   migrateUsersBalance();
   migrateUsersReferrer();
   migrateUsersNotifications();
-
-  if (!fs.existsSync(path.join(DATA_DIR, 'promocodes.json'))) writeJSON('promocodes.json', []);
-  if (!fs.existsSync(path.join(DATA_DIR, 'banner.json'))) writeJSON('banner.json', defaultBanner());
-  if (!fs.existsSync(path.join(DATA_DIR, 'settings.json'))) writeJSON('settings.json', defaultSettings());
 }
 
 function defaultSettings() {
@@ -103,18 +70,12 @@ function defaultSettings() {
 }
 
 function readSettings() {
-  const fp = path.join(DATA_DIR, 'settings.json');
-  if (!fs.existsSync(fp)) return defaultSettings();
-  try {
-    const parsed = JSON.parse(fs.readFileSync(fp, 'utf8'));
-    if (!parsed || typeof parsed !== 'object') return defaultSettings();
-    const bonus = parseInt(parsed.referralBonus, 10);
-    return {
-      referralBonus: Number.isFinite(bonus) && bonus >= 0 ? bonus : defaultSettings().referralBonus
-    };
-  } catch {
-    return defaultSettings();
-  }
+  const parsed = readJSON('settings.json');
+  if (!parsed || typeof parsed !== 'object') return defaultSettings();
+  const bonus = parseInt(parsed.referralBonus, 10);
+  return {
+    referralBonus: Number.isFinite(bonus) && bonus >= 0 ? bonus : defaultSettings().referralBonus
+  };
 }
 
 function getReferralBonus() {
@@ -2083,6 +2044,7 @@ async function initBot(retryCount = 0) {
 // ─── Start Server ─────────────────────────────────────────────────────────────
 
 ensureDataFiles();
+console.log(`💾 SQLite: ${db.DB_PATH}`);
 
 // Log products count on startup for debugging
 const startupProducts = (() => {
@@ -2106,6 +2068,7 @@ async function shutdown(signal) {
   if (bot) {
     try { await bot.stopPolling(); } catch {}
   }
+  try { db.getDb().close(); } catch {}
   process.exit(0);
 }
 process.on('SIGINT', () => shutdown('SIGINT'));

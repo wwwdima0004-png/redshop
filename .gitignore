@@ -4,7 +4,12 @@ node_modules/
 # Environment variables (keep .env.example)
 .env
 
-# Uploaded images (ephemeral on Render — not stored in git)
+# SQLite database (server-local, never commit)
+data/redshop.db
+data/redshop.db-wal
+data/redshop.db-shm
+
+# Uploaded images
 public/uploads/
 
 # OS / editor
