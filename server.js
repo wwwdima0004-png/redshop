@@ -201,7 +201,14 @@ function migrateOrdersStatusesAndReservation() {
 }
 
 function defaultSettings() {
-  return { referralBonus: 30 };
+  return { referralBonus: 30, orderAutoDelete: 'never' };
+}
+
+const ORDER_AUTO_DELETE_VALUES = ['never', '10', '5', '3', '1'];
+
+function normalizeOrderAutoDelete(value) {
+  const v = String(value ?? 'never');
+  return ORDER_AUTO_DELETE_VALUES.includes(v) ? v : 'never';
 }
 
 function readSettings() {
@@ -209,8 +216,51 @@ function readSettings() {
   if (!parsed || typeof parsed !== 'object') return defaultSettings();
   const bonus = parseInt(parsed.referralBonus, 10);
   return {
-    referralBonus: Number.isFinite(bonus) && bonus >= 0 ? bonus : defaultSettings().referralBonus
+    referralBonus: Number.isFinite(bonus) && bonus >= 0 ? bonus : defaultSettings().referralBonus,
+    orderAutoDelete: normalizeOrderAutoDelete(parsed.orderAutoDelete)
   };
+}
+
+function getOrderAutoDeleteDays(setting) {
+  const normalized = normalizeOrderAutoDelete(setting);
+  if (normalized === 'never') return null;
+  return parseInt(normalized, 10);
+}
+
+function cleanupOldOrders() {
+  const { orderAutoDelete } = readSettings();
+  const days = getOrderAutoDeleteDays(orderAutoDelete);
+  if (days == null) return 0;
+
+  const orders = readJSON('orders.json');
+  if (!Array.isArray(orders) || orders.length === 0) return 0;
+
+  const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+  const kept = [];
+  let removed = 0;
+
+  orders.forEach(order => {
+    const created = order.createdAt ? new Date(order.createdAt).getTime() : NaN;
+    if (Number.isFinite(created) && created < cutoff) {
+      removed += 1;
+    } else {
+      kept.push(order);
+    }
+  });
+
+  if (removed > 0) {
+    writeJSON('orders.json', kept);
+    console.log(`🗑️ Автоудаление заказов: удалено ${removed} (старше ${days} дн.)`);
+  }
+
+  return removed;
+}
+
+const ORDER_CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
+function startOrderCleanupScheduler() {
+  cleanupOldOrders();
+  setInterval(cleanupOldOrders, ORDER_CLEANUP_INTERVAL_MS);
 }
 
 function getReferralBonus() {
@@ -1213,11 +1263,22 @@ app.get('/api/settings', (req, res) => {
 
 app.put('/api/settings', requireAdmin, (req, res) => {
   const current = readSettings();
+
   const bonus = parseInt(req.body?.referralBonus, 10);
   if (!Number.isFinite(bonus) || bonus < 0) {
     return res.status(400).json({ error: 'Укажите корректную сумму бонуса (0 или больше)' });
   }
-  const settings = { ...current, referralBonus: bonus };
+
+  let orderAutoDelete = current.orderAutoDelete;
+  if (req.body?.orderAutoDelete !== undefined) {
+    const raw = String(req.body.orderAutoDelete);
+    if (!ORDER_AUTO_DELETE_VALUES.includes(raw)) {
+      return res.status(400).json({ error: 'Недопустимое значение автоудаления заказов' });
+    }
+    orderAutoDelete = raw;
+  }
+
+  const settings = { referralBonus: bonus, orderAutoDelete };
   writeJSON('settings.json', settings);
   res.json(settings);
 });
@@ -2253,6 +2314,7 @@ console.log(`📦 Товаров в каталоге: ${startupProducts.length}`
 
 initBot();
 startNotificationScheduler();
+startOrderCleanupScheduler();
 
 app.listen(PORT, () => {
   console.log(`🚀 Red Shop сервер запущен на порту ${PORT}`);

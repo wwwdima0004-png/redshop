@@ -3917,23 +3917,28 @@ async function loadReferralBonusSettings() {
     const data = await api('GET', '/settings');
     const input = document.getElementById('adminReferralBonus');
     if (input) input.value = data.referralBonus ?? 30;
+    const autoDelete = document.getElementById('adminOrderAutoDelete');
+    if (autoDelete) autoDelete.value = data.orderAutoDelete || 'never';
   } catch {}
 }
 
 async function saveReferralBonusSettings() {
   const input = document.getElementById('adminReferralBonus');
+  const autoDelete = document.getElementById('adminOrderAutoDelete');
   const btn = document.getElementById('saveReferralBonusBtn');
   const bonus = parseInt(input?.value, 10);
   if (!Number.isFinite(bonus) || bonus < 0) {
     showToast('Введите корректную сумму', 'error');
     return;
   }
+  const orderAutoDelete = autoDelete?.value || 'never';
   if (btn) { btn.disabled = true; btn.textContent = 'Сохранение...'; }
   try {
-    const data = await api('PUT', '/settings', { referralBonus: bonus }, true);
+    const data = await api('PUT', '/settings', { referralBonus: bonus, orderAutoDelete }, true);
     if (input) input.value = data.referralBonus;
+    if (autoDelete) autoDelete.value = data.orderAutoDelete || 'never';
     updateReferralBonusDisplay(data.referralBonus);
-    showToast('Реферальный бонус сохранён ✓', 'success');
+    showToast('Настройки сохранены ✓', 'success');
   } catch (err) {
     showToast('Ошибка: ' + (err.message || 'не удалось сохранить'), 'error');
   } finally {
