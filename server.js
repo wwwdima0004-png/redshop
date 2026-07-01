@@ -1943,6 +1943,8 @@ app.get('/api/stats', requireAdmin, (req, res) => {
   const users = readJSON('users.json');
   const orders = readJSON('orders.json');
   const products = readJSON('products.json');
+  const models = readJSON('models.json');
+  const categories = readJSON('categories.json');
 
   const today = new Date().toDateString();
   const todayOrders = orders.filter(o => new Date(o.createdAt).toDateString() === today);
@@ -1951,6 +1953,40 @@ app.get('/api/stats', requireAdmin, (req, res) => {
   // Most popular product
   const topProduct = [...products].sort((a, b) => (b.sales || 0) - (a.sales || 0))[0];
 
+  let newCount = 0;
+  let doneCount = 0;
+  let defectCount = 0;
+  let cancelCount = 0;
+  (orders || []).forEach(o => {
+    const status = normalizeOrderStatus(o.status);
+    if (status === 'new') newCount += 1;
+    else if (status === 'done') doneCount += 1;
+    else if (status === 'defect') defectCount += 1;
+    else if (status === 'cancel') cancelCount += 1;
+  });
+
+  const modelById = new Map((models || []).map(m => [Number(m.id), m]));
+  const categoryById = new Map((categories || []).map(c => [Number(c.id), c]));
+  const stockByModelId = new Map();
+
+  (products || []).forEach(p => {
+    const modelId = parseInt(p.modelId, 10);
+    if (!Number.isFinite(modelId) || modelId <= 0) return;
+    const stock = Math.max(0, Math.round(Number(p.stock) || 0));
+    stockByModelId.set(modelId, (stockByModelId.get(modelId) || 0) + stock);
+  });
+
+  const stockByModel = [...stockByModelId.entries()]
+    .map(([modelId, stock]) => {
+      const model = modelById.get(modelId);
+      const modelName = model?.name || `Модель #${modelId}`;
+      const brandId = model?.brandId != null ? Number(model.brandId) : null;
+      const brand = brandId ? categoryById.get(brandId) : null;
+      const label = brand?.name ? `${brand.name} ${modelName}` : modelName;
+      return { model: label, stock };
+    })
+    .sort((a, b) => b.stock - a.stock);
+
   res.json({
     totalUsers: users.length,
     totalOrders: orders.length,
@@ -1958,7 +1994,12 @@ app.get('/api/stats', requireAdmin, (req, res) => {
     todaySales,
     topProduct: topProduct ? { name: topProduct.name, sales: topProduct.sales } : null,
     availableProducts: products.filter(p => p.available).length,
-    totalProducts: products.length
+    totalProducts: products.length,
+    newCount,
+    doneCount,
+    defectCount,
+    cancelCount,
+    stockByModel
   });
 });
 

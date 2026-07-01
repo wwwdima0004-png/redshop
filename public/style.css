@@ -3063,6 +3063,18 @@ a { color: inherit; text-decoration: none; }
   gap: 10px;
 }
 
+.stats-status-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
+.stat-card-status .stat-value { font-size: 22px; }
+.stat-card-new .stat-value { color: var(--accent-light); }
+.stat-card-done .stat-value { color: var(--success); }
+.stat-card-defect .stat-value { color: var(--warning); }
+.stat-card-cancel .stat-value { color: var(--grey); }
+
 .stat-card {
   background: var(--bg-card);
   border: 1px solid var(--border);

@@ -3976,6 +3976,43 @@ function renderStats(stats, products) {
     </div>
   `;
 
+  const statusGrid = document.getElementById('statsOrderStatus');
+  if (statusGrid) {
+    statusGrid.innerHTML = `
+      <div class="stat-card stat-card-status stat-card-new">
+        <div class="stat-value">${stats.newCount ?? 0}</div>
+        <div class="stat-label">Новые</div>
+      </div>
+      <div class="stat-card stat-card-status stat-card-done">
+        <div class="stat-value">${stats.doneCount ?? 0}</div>
+        <div class="stat-label">Выполнено</div>
+      </div>
+      <div class="stat-card stat-card-status stat-card-defect">
+        <div class="stat-value">${stats.defectCount ?? 0}</div>
+        <div class="stat-label">Брак</div>
+      </div>
+      <div class="stat-card stat-card-status stat-card-cancel">
+        <div class="stat-value">${stats.cancelCount ?? 0}</div>
+        <div class="stat-label">Отмена</div>
+      </div>
+    `;
+  }
+
+  const modelStockList = document.getElementById('statsModelStock');
+  if (modelStockList) {
+    const rows = stats.stockByModel || [];
+    if (!rows.length) {
+      modelStockList.innerHTML = '<div class="empty-state" style="padding:16px"><div>Нет данных по моделям</div></div>';
+    } else {
+      modelStockList.innerHTML = rows.map(row => `
+        <div class="top-product-row">
+          <span class="top-product-name">${escapeHtml(row.model)}</span>
+          <span class="top-product-sales">${row.stock} шт</span>
+        </div>
+      `).join('');
+    }
+  }
+
   // Top products list
   const topList = document.getElementById('statsTopProducts');
   const sorted = [...products].sort((a, b) => (b.sales || 0) - (a.sales || 0)).slice(0, 5);
