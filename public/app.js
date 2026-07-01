@@ -3916,9 +3916,10 @@ async function loadReferralBonusSettings() {
   try {
     const data = await api('GET', '/settings');
     const input = document.getElementById('adminReferralBonus');
-    if (input) input.value = data.referralBonus ?? 30;
     const autoDelete = document.getElementById('adminOrderAutoDelete');
+    if (input) input.value = data.referralBonus ?? 30;
     if (autoDelete) autoDelete.value = data.orderAutoDelete || 'never';
+    updateReferralBonusDisplay(data.referralBonus ?? 30);
   } catch {}
 }
 
@@ -3938,7 +3939,28 @@ async function saveReferralBonusSettings() {
     if (input) input.value = data.referralBonus;
     if (autoDelete) autoDelete.value = data.orderAutoDelete || 'never';
     updateReferralBonusDisplay(data.referralBonus);
-    showToast('Настройки сохранены ✓', 'success');
+    showToast('Реферальный бонус сохранён ✓', 'success');
+  } catch (err) {
+    showToast('Ошибка: ' + (err.message || 'не удалось сохранить'), 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Сохранить'; }
+  }
+}
+
+async function saveOrderAutoDeleteSettings() {
+  const input = document.getElementById('adminReferralBonus');
+  const autoDelete = document.getElementById('adminOrderAutoDelete');
+  const btn = document.getElementById('saveOrderAutoDeleteBtn');
+  const orderAutoDelete = autoDelete?.value || 'never';
+  const bonusRaw = parseInt(input?.value, 10);
+  const bonus = Number.isFinite(bonusRaw) && bonusRaw >= 0 ? bonusRaw : (state.referralBonus ?? 30);
+  if (btn) { btn.disabled = true; btn.textContent = 'Сохранение...'; }
+  try {
+    const data = await api('PUT', '/settings', { referralBonus: bonus, orderAutoDelete }, true);
+    if (input) input.value = data.referralBonus;
+    if (autoDelete) autoDelete.value = data.orderAutoDelete || 'never';
+    updateReferralBonusDisplay(data.referralBonus);
+    showToast('Автоудаление сохранено ✓', 'success');
   } catch (err) {
     showToast('Ошибка: ' + (err.message || 'не удалось сохранить'), 'error');
   } finally {
