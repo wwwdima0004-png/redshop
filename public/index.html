@@ -865,6 +865,26 @@
         </div>
         <button type="button" class="btn-primary" id="saveOrderAutoDeleteBtn" onclick="saveOrderAutoDeleteSettings()">Сохранить</button>
       </div>
+      <div class="card" style="margin-bottom:20px">
+        <h4>QR-код оплаты</h4>
+        <p class="admin-hint">Общий QR-код для оплаты заказов. Загрузите изображение — его можно будет показывать покупателям при оформлении.</p>
+        <div id="paymentQrPreview" class="payment-qr-preview">
+          <span class="payment-qr-placeholder">QR не загружен</span>
+        </div>
+        <div class="form-group">
+          <label>Изображение QR</label>
+          <div class="file-upload-area" onclick="document.getElementById('adminPaymentQrInput').click()">
+            <div id="paymentQrFilePreview" class="file-preview-icon">📷</div>
+            <span id="paymentQrFileName">Загрузить / заменить QR</span>
+          </div>
+          <input type="file" id="adminPaymentQrInput" accept="image/*" style="display:none"
+            onchange="previewPaymentQrFile(this)">
+        </div>
+        <div class="inline-edit-row" style="margin-top:8px">
+          <button type="button" class="btn-primary" id="savePaymentQrBtn" onclick="savePaymentQrSettings()">Сохранить</button>
+          <button type="button" class="btn-sm btn-sm-grey" id="removePaymentQrBtn" onclick="removePaymentQr()">Удалить QR</button>
+        </div>
+      </div>
       <div id="statsGrid" class="stats-grid">
         <!-- Injected by JS -->
       </div>

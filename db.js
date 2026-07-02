@@ -111,7 +111,8 @@ function createSchema(database) {
     CREATE TABLE IF NOT EXISTS settings (
       id INTEGER PRIMARY KEY CHECK (id = 1),
       referralBonus INTEGER NOT NULL DEFAULT 30,
-      orderAutoDelete TEXT NOT NULL DEFAULT 'never'
+      orderAutoDelete TEXT NOT NULL DEFAULT 'never',
+      paymentQr TEXT NOT NULL DEFAULT ''
     );
 
     CREATE TABLE IF NOT EXISTS messages (
@@ -127,9 +128,13 @@ function runSchemaMigrations(database) {
     database.exec('ALTER TABLE products ADD COLUMN reserved INTEGER NOT NULL DEFAULT 0');
   }
 
-  const settingsCols = database.prepare('PRAGMA table_info(settings)').all();
+  let settingsCols = database.prepare('PRAGMA table_info(settings)').all();
   if (!settingsCols.some(c => c.name === 'orderAutoDelete')) {
     database.exec("ALTER TABLE settings ADD COLUMN orderAutoDelete TEXT NOT NULL DEFAULT 'never'");
+  }
+  settingsCols = database.prepare('PRAGMA table_info(settings)').all();
+  if (!settingsCols.some(c => c.name === 'paymentQr')) {
+    database.exec("ALTER TABLE settings ADD COLUMN paymentQr TEXT NOT NULL DEFAULT ''");
   }
 }
 
@@ -306,9 +311,10 @@ function importFromJsonFiles(database) {
     if (settings && typeof settings === 'object' && !Array.isArray(settings)) {
       const bonus = parseInt(settings.referralBonus, 10);
       const orderAutoDelete = sanitizeOrderAutoDelete(settings.orderAutoDelete);
+      const paymentQr = settings.paymentQr != null ? String(settings.paymentQr) : '';
       database.prepare(
-        'INSERT OR REPLACE INTO settings (id, referralBonus, orderAutoDelete) VALUES (1, ?, ?)'
-      ).run(Number.isFinite(bonus) && bonus >= 0 ? bonus : 30, orderAutoDelete);
+        'INSERT OR REPLACE INTO settings (id, referralBonus, orderAutoDelete, paymentQr) VALUES (1, ?, ?, ?)'
+      ).run(Number.isFinite(bonus) && bonus >= 0 ? bonus : 30, orderAutoDelete, paymentQr);
       imported.settings = true;
     }
 
@@ -347,10 +353,11 @@ function ensureDefaultBannerAndSettings(database, { defaultBanner, defaultSettin
   const settingsCount = database.prepare('SELECT COUNT(*) AS c FROM settings').get().c;
   if (settingsCount === 0 && defaultSettings) {
     database.prepare(
-      'INSERT INTO settings (id, referralBonus, orderAutoDelete) VALUES (1, ?, ?)'
+      'INSERT INTO settings (id, referralBonus, orderAutoDelete, paymentQr) VALUES (1, ?, ?, ?)'
     ).run(
       defaultSettings.referralBonus ?? 30,
-      sanitizeOrderAutoDelete(defaultSettings.orderAutoDelete)
+      sanitizeOrderAutoDelete(defaultSettings.orderAutoDelete),
+      defaultSettings.paymentQr != null ? String(defaultSettings.paymentQr) : ''
     );
   }
 }
@@ -641,21 +648,32 @@ function saveBannerObject(banner) {
 }
 
 function getSettingsObject() {
-  const row = getDb().prepare('SELECT referralBonus, orderAutoDelete FROM settings WHERE id = 1').get();
-  if (!row) return { referralBonus: 30, orderAutoDelete: 'never' };
+  const row = getDb().prepare('SELECT referralBonus, orderAutoDelete, paymentQr FROM settings WHERE id = 1').get();
+  if (!row) return { referralBonus: 30, orderAutoDelete: 'never', paymentQr: '' };
   return {
     referralBonus: row.referralBonus,
-    orderAutoDelete: sanitizeOrderAutoDelete(row.orderAutoDelete)
+    orderAutoDelete: sanitizeOrderAutoDelete(row.orderAutoDelete),
+    paymentQr: row.paymentQr ? String(row.paymentQr) : ''
   };
 }
 
 function saveSettingsObject(settings) {
   if (!settings || typeof settings !== 'object') return;
+  const current = getSettingsObject();
   const bonus = parseInt(settings.referralBonus, 10);
-  const orderAutoDelete = sanitizeOrderAutoDelete(settings.orderAutoDelete);
+  const orderAutoDelete = sanitizeOrderAutoDelete(
+    settings.orderAutoDelete !== undefined ? settings.orderAutoDelete : current.orderAutoDelete
+  );
+  const paymentQr = settings.paymentQr !== undefined
+    ? String(settings.paymentQr || '')
+    : current.paymentQr;
   getDb().prepare(
-    'INSERT OR REPLACE INTO settings (id, referralBonus, orderAutoDelete) VALUES (1, ?, ?)'
-  ).run(Number.isFinite(bonus) && bonus >= 0 ? bonus : 30, orderAutoDelete);
+    'INSERT OR REPLACE INTO settings (id, referralBonus, orderAutoDelete, paymentQr) VALUES (1, ?, ?, ?)'
+  ).run(
+    Number.isFinite(bonus) && bonus >= 0 ? bonus : 30,
+    orderAutoDelete,
+    paymentQr
+  );
 }
 
 function getMessagesObject() {
@@ -710,7 +728,7 @@ function readJSON(file) {
     return data && typeof data === 'object' && !Array.isArray(data) ? data : null;
   }
   if (file === 'settings.json') {
-    return data && typeof data === 'object' ? data : { referralBonus: 30, orderAutoDelete: 'never' };
+    return data && typeof data === 'object' ? data : { referralBonus: 30, orderAutoDelete: 'never', paymentQr: '' };
   }
   return Array.isArray(data) ? data : [];
 }

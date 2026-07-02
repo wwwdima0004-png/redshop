@@ -201,7 +201,7 @@ function migrateOrdersStatusesAndReservation() {
 }
 
 function defaultSettings() {
-  return { referralBonus: 30, orderAutoDelete: 'never' };
+  return { referralBonus: 30, orderAutoDelete: 'never', paymentQr: '' };
 }
 
 const ORDER_AUTO_DELETE_VALUES = ['never', '10', '5', '3', '1'];
@@ -217,7 +217,8 @@ function readSettings() {
   const bonus = parseInt(parsed.referralBonus, 10);
   return {
     referralBonus: Number.isFinite(bonus) && bonus >= 0 ? bonus : defaultSettings().referralBonus,
-    orderAutoDelete: normalizeOrderAutoDelete(parsed.orderAutoDelete)
+    orderAutoDelete: normalizeOrderAutoDelete(parsed.orderAutoDelete),
+    paymentQr: typeof parsed.paymentQr === 'string' ? parsed.paymentQr.trim().slice(0, 500) : ''
   };
 }
 
@@ -1152,7 +1153,9 @@ const storage = multer.diskStorage({
   filename: (req, file, cb) => {
     const ext = path.extname(file.originalname).toLowerCase();
     const prefix = req.originalUrl.includes('/models') ? 'model'
-      : req.originalUrl.includes('/categories') ? 'category' : 'product';
+      : req.originalUrl.includes('/categories') ? 'category'
+      : req.originalUrl.includes('/settings/qr') ? 'qr'
+      : 'product';
     cb(null, `${prefix}_${Date.now()}${ext}`);
   }
 });
@@ -1278,7 +1281,31 @@ app.put('/api/settings', requireAdmin, (req, res) => {
     orderAutoDelete = raw;
   }
 
-  const settings = { referralBonus: bonus, orderAutoDelete };
+  const settings = {
+    referralBonus: bonus,
+    orderAutoDelete,
+    paymentQr: current.paymentQr || ''
+  };
+  writeJSON('settings.json', settings);
+  res.json(settings);
+});
+
+app.put('/api/settings/qr', requireAdmin, upload.single('paymentQr'), (req, res) => {
+  const current = readSettings();
+  const removeQr = req.body.removeQr === 'true' || req.body.removeQr === true;
+  let paymentQr = current.paymentQr || '';
+
+  if (removeQr) {
+    paymentQr = '';
+  } else if (req.file) {
+    paymentQr = `/uploads/${req.file.filename}`;
+  }
+
+  const settings = {
+    referralBonus: current.referralBonus,
+    orderAutoDelete: current.orderAutoDelete,
+    paymentQr
+  };
   writeJSON('settings.json', settings);
   res.json(settings);
 });

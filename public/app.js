@@ -3917,7 +3917,86 @@ async function loadReferralBonusSettings() {
     if (input) input.value = data.referralBonus ?? 30;
     if (autoDelete) autoDelete.value = data.orderAutoDelete || 'never';
     updateReferralBonusDisplay(data.referralBonus ?? 30);
+    updateAdminPaymentQrPreview(data.paymentQr || '');
   } catch {}
+}
+
+function updateAdminPaymentQrPreview(paymentQr) {
+  const preview = document.getElementById('paymentQrPreview');
+  if (!preview) return;
+  if (paymentQr && String(paymentQr).trim()) {
+    const src = normalizePhotoSrc(paymentQr);
+    preview.innerHTML = `<img src="${src}" alt="QR оплаты" class="payment-qr-image">`;
+  } else {
+    preview.innerHTML = '<span class="payment-qr-placeholder">QR не загружен</span>';
+  }
+}
+
+function previewPaymentQrFile(input) {
+  if (!input.files[0]) return;
+  const name = input.files[0].name;
+  const nameEl = document.getElementById('paymentQrFileName');
+  if (nameEl) nameEl.textContent = name.length > 25 ? name.slice(0, 25) + '...' : name;
+  const reader = new FileReader();
+  reader.onload = e => {
+    const filePreview = document.getElementById('paymentQrFilePreview');
+    if (filePreview) {
+      filePreview.innerHTML = `<img src="${e.target.result}" style="width:36px;height:36px;object-fit:cover;border-radius:6px;">`;
+    }
+    const preview = document.getElementById('paymentQrPreview');
+    if (preview) {
+      preview.innerHTML = `<img src="${e.target.result}" alt="QR оплаты" class="payment-qr-image">`;
+    }
+  };
+  reader.readAsDataURL(input.files[0]);
+}
+
+async function savePaymentQrSettings() {
+  const input = document.getElementById('adminPaymentQrInput');
+  const btn = document.getElementById('savePaymentQrBtn');
+  if (!input?.files[0]) {
+    showToast('Выберите изображение QR-кода', 'error');
+    return;
+  }
+  const fd = new FormData();
+  fd.append('paymentQr', input.files[0]);
+  if (btn) { btn.disabled = true; btn.textContent = 'Сохранение...'; }
+  try {
+    const data = await adminFormFetch('PUT', `${API}/settings/qr`, fd);
+    updateAdminPaymentQrPreview(data.paymentQr || '');
+    input.value = '';
+    const filePreview = document.getElementById('paymentQrFilePreview');
+    if (filePreview) filePreview.textContent = '📷';
+    const nameEl = document.getElementById('paymentQrFileName');
+    if (nameEl) nameEl.textContent = 'Загрузить / заменить QR';
+    showToast('QR-код сохранён ✓', 'success');
+  } catch (err) {
+    showToast('Ошибка: ' + (err.message || 'не удалось сохранить'), 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Сохранить'; }
+  }
+}
+
+async function removePaymentQr() {
+  const btn = document.getElementById('removePaymentQrBtn');
+  const fd = new FormData();
+  fd.append('removeQr', 'true');
+  if (btn) btn.disabled = true;
+  try {
+    const data = await adminFormFetch('PUT', `${API}/settings/qr`, fd);
+    updateAdminPaymentQrPreview(data.paymentQr || '');
+    const input = document.getElementById('adminPaymentQrInput');
+    if (input) input.value = '';
+    const filePreview = document.getElementById('paymentQrFilePreview');
+    if (filePreview) filePreview.textContent = '📷';
+    const nameEl = document.getElementById('paymentQrFileName');
+    if (nameEl) nameEl.textContent = 'Загрузить / заменить QR';
+    showToast('QR-код удалён ✓', 'success');
+  } catch (err) {
+    showToast('Ошибка: ' + (err.message || 'не удалось удалить'), 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 
 async function saveReferralBonusSettings() {
