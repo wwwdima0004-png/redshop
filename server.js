@@ -1044,6 +1044,245 @@ function notifyAdminsNewOrder(order) {
   ADMIN_IDS.forEach(id => bot.sendMessage(id, text, { parse_mode: 'Markdown' }).catch(() => {}));
 }
 
+const MANAGER_URL = 'https://t.me/roomsellerr';
+
+function formatOrderItemsText(order) {
+  return (order.items || []).map(i => {
+    const name = i.description || i.name;
+    return `• ${name} ×${i.qty || 1} — ${(i.price || 0) * (i.qty || 1)} сом`;
+  }).join('\n');
+}
+
+function buildOrderConfirmationText(order) {
+  let text = `✅ *Заказ #${order.id} принят!*\n\n`;
+  text += `📦 *Состав заказа:*\n${formatOrderItemsText(order)}\n`;
+  if (order.discount) text += `\n🎁 Скидка: −${order.discount} сом`;
+  if (order.promoDiscountUsed) text += `\n🏷️ Промо-скидка: −${order.promoDiscountUsed} сом`;
+  if (order.balanceUsed) text += `\n💳 С баланса: −${order.balanceUsed} сом`;
+  text += `\n\n💰 *Итого: ${order.finalTotal} сом*`;
+  if (order.phone) text += `\n\n📞 ${order.phone}`;
+  if (order.address) text += `\n📍 ${order.address}`;
+  text += `\n\nВыберите удобный способ оплаты 👇`;
+  text += `\n\n💬 Если возникнут вопросы — напишите прямо в этот чат, мы поможем.`;
+  return text;
+}
+
+function getOrderPaymentKeyboard(orderId) {
+  return {
+    inline_keyboard: [
+      [
+        { text: '🚚 Оплата при получении', callback_data: `pay_cod_${orderId}` },
+        { text: '💳 Оплатить сразу', callback_data: `pay_now_${orderId}` }
+      ]
+    ]
+  };
+}
+
+function sendOrderConfirmationToCustomer(order) {
+  if (!bot || !order?.userId) return Promise.resolve();
+  return bot.sendMessage(order.userId, buildOrderConfirmationText(order), {
+    parse_mode: 'Markdown',
+    reply_markup: getOrderPaymentKeyboard(order.id)
+  }).catch(err => console.error('Order confirmation send failed:', err.message));
+}
+
+function getPaymentQrFilePath() {
+  const paymentQr = readSettings().paymentQr;
+  if (!paymentQr || !String(paymentQr).trim()) return null;
+  const rel = String(paymentQr).trim();
+  const filePath = rel.startsWith('/uploads/')
+    ? path.join(__dirname, 'public', rel)
+    : path.join(__dirname, 'public', 'uploads', path.basename(rel));
+  return fs.existsSync(filePath) ? filePath : null;
+}
+
+function findOrderById(orderId) {
+  const orders = readJSON('orders.json');
+  const id = parseInt(orderId, 10);
+  if (!Number.isFinite(id)) return { orders, order: null, id: null };
+  const order = orders.find(o => Number(o.id) === id) || null;
+  return { orders, order, id };
+}
+
+function saveOrderUpdate(orders, order) {
+  const idx = orders.findIndex(o => Number(o.id) === Number(order.id));
+  if (idx >= 0) {
+    orders[idx] = order;
+    writeJSON('orders.json', orders);
+  }
+}
+
+function buildPrepayInstructionText(order) {
+  let text = `💳 *Оплата заказа #${order.id}*\n\n`;
+  text += `Отсканируйте QR-код ниже и переведите *${order.finalTotal} сом*.\n`;
+  text += `После оплаты отправьте скриншот чека *в этот чат* — мы подтвердим платёж.\n\n`;
+  text += `📦 *Ваш заказ:*\n${formatOrderItemsText(order)}\n`;
+  if (order.phone) text += `\n📞 ${order.phone}`;
+  if (order.address) text += `\n📍 ${order.address}`;
+  text += `\n\n🚕 Доставка — через Яндекс.Тaxi. Стоимость поездки оплачивается получателем отдельно.\n\n`;
+  text += `❓ Вопросы — [напишите менеджеру](${MANAGER_URL})`;
+  return text;
+}
+
+function buildCodInstructionText(order) {
+  let text = `🚚 *Оплата при получении — заказ #${order.id}*\n\n`;
+  text += `Доставим заказ нашими курьерами. Стоимость доставки — *150 сом* (оплачивается при получении).\n\n`;
+  text += `📦 *Состав заказа:*\n${formatOrderItemsText(order)}\n`;
+  text += `\n💰 *Сумма товара: ${order.finalTotal} сом*`;
+  if (order.phone) text += `\n📞 ${order.phone}`;
+  if (order.address) text += `\n📍 ${order.address}`;
+  text += `\n\n❓ Вопросы — [напишите менеджеру](${MANAGER_URL})`;
+  return text;
+}
+
+function notifyAdminsPaymentChoice(order, methodLabel) {
+  if (!bot) return;
+  const itemLines = (order.items || []).map(i => {
+    const flavor = i.description || i.name;
+    return `• ${flavor} ×${i.qty || 1}`;
+  }).join('\n');
+  let text = `${methodLabel} по заказу *#${order.id}*\n\n`;
+  text += `👤 ${order.userName || 'Аноним'}${order.username ? ` (@${order.username})` : ''}\n\n`;
+  if (itemLines) text += `📦 ${itemLines}\n\n`;
+  text += `💰 Итого: *${order.finalTotal} сом*`;
+  if (order.phone) text += `\n📞 ${order.phone}`;
+  if (order.address) text += `\n📍 ${order.address}`;
+
+  const opts = { parse_mode: 'Markdown' };
+  if (methodLabel.includes('Оплатить сразу')) {
+    opts.reply_markup = {
+      inline_keyboard: [[{ text: '✅ Оплачено', callback_data: `paid_${order.id}` }]]
+    };
+  }
+
+  ADMIN_IDS.forEach(id => bot.sendMessage(id, text, opts).catch(() => {}));
+}
+
+async function handlePayNowCallback(query, orderIdStr) {
+  const chatId = query.message?.chat?.id;
+  const fromId = query.from?.id;
+  const { orders, order, id } = findOrderById(orderIdStr);
+
+  if (!order) {
+    await bot.answerCallbackQuery(query.id, { text: 'Заказ не найден', show_alert: true });
+    return;
+  }
+  if (order.userId && Number(order.userId) !== Number(fromId)) {
+    await bot.answerCallbackQuery(query.id, { text: 'Это не ваш заказ', show_alert: true });
+    return;
+  }
+  if (order.paymentMethod) {
+    await bot.answerCallbackQuery(query.id, { text: 'Способ оплаты уже выбран', show_alert: true });
+    return;
+  }
+
+  order.paymentMethod = 'prepay';
+  order.paymentChosenAt = new Date().toISOString();
+  saveOrderUpdate(orders, order);
+
+  const qrPath = getPaymentQrFilePath();
+  const prepayText = buildPrepayInstructionText(order);
+
+  if (qrPath) {
+    await bot.sendPhoto(chatId, fs.createReadStream(qrPath), {
+      caption: prepayText,
+      parse_mode: 'Markdown'
+    });
+  } else {
+    await bot.sendMessage(chatId,
+      `⚠️ *QR-код оплаты временно недоступен*\n\n` +
+      `Заказ #${order.id} — *${order.finalTotal} сом*\n\n` +
+      `📦 ${formatOrderItemsText(order)}\n\n` +
+      `Пожалуйста, [свяжитесь с менеджером](${MANAGER_URL}) — он поможет с оплатой.`,
+      { parse_mode: 'Markdown' }
+    );
+    ADMIN_IDS.forEach(adminId => {
+      bot.sendMessage(adminId,
+        `⚠️ Клиент выбрал «Оплатить сразу» по заказу #${order.id}, но QR-код не загружен в настройках.`,
+        { parse_mode: 'Markdown' }
+      ).catch(() => {});
+    });
+  }
+
+  notifyAdminsPaymentChoice(order, '💳 Клиент выбрал «Оплатить сразу»');
+  await bot.answerCallbackQuery(query.id, { text: 'Инструкция по оплате отправлена ✓' });
+}
+
+async function handlePayCodCallback(query, orderIdStr) {
+  const chatId = query.message?.chat?.id;
+  const fromId = query.from?.id;
+  const { orders, order } = findOrderById(orderIdStr);
+
+  if (!order) {
+    await bot.answerCallbackQuery(query.id, { text: 'Заказ не найден', show_alert: true });
+    return;
+  }
+  if (order.userId && Number(order.userId) !== Number(fromId)) {
+    await bot.answerCallbackQuery(query.id, { text: 'Это не ваш заказ', show_alert: true });
+    return;
+  }
+  if (order.paymentMethod) {
+    await bot.answerCallbackQuery(query.id, { text: 'Способ оплаты уже выбран', show_alert: true });
+    return;
+  }
+
+  order.paymentMethod = 'cod';
+  order.paymentChosenAt = new Date().toISOString();
+  saveOrderUpdate(orders, order);
+
+  await bot.sendMessage(chatId, buildCodInstructionText(order), { parse_mode: 'Markdown' });
+  notifyAdminsPaymentChoice(order, '🚚 Клиент выбрал «Оплата при получении»');
+  await bot.answerCallbackQuery(query.id, { text: 'Доставка при получении ✓' });
+}
+
+async function handlePaidCallback(query, orderIdStr) {
+  const fromId = query.from?.id;
+
+  if (!ADMIN_IDS.includes(fromId)) {
+    await bot.answerCallbackQuery(query.id, { text: 'Недостаточно прав', show_alert: true });
+    return;
+  }
+
+  const { orders, order } = findOrderById(orderIdStr);
+  if (!order) {
+    await bot.answerCallbackQuery(query.id, { text: 'Заказ не найден', show_alert: true });
+    return;
+  }
+  if (order.paid) {
+    await bot.answerCallbackQuery(query.id, { text: 'Оплата уже подтверждена' });
+    return;
+  }
+
+  order.paid = true;
+  order.paidAt = new Date().toISOString();
+  saveOrderUpdate(orders, order);
+
+  if (order.userId) {
+    await bot.sendMessage(order.userId,
+      `✅ *Оплата по заказу #${order.id} подтверждена!*\n\n` +
+      `Мы передали заказ в доставку. Спасибо за покупку! 🛒`,
+      { parse_mode: 'Markdown' }
+    ).catch(() => {});
+  }
+
+  if (query.message) {
+    const markedText = `${query.message.text || ''}\n\n✅ *Оплата подтверждена*`;
+    await bot.editMessageText(markedText, {
+      chat_id: query.message.chat.id,
+      message_id: query.message.message_id,
+      parse_mode: 'Markdown',
+      reply_markup: { inline_keyboard: [] }
+    }).catch(() => {
+      bot.editMessageReplyMarkup({ inline_keyboard: [] }, {
+        chat_id: query.message.chat.id,
+        message_id: query.message.message_id
+      }).catch(() => {});
+    });
+  }
+
+  await bot.answerCallbackQuery(query.id, { text: 'Оплата подтверждена ✓' });
+}
+
 function getUserBalance(userId) {
   if (!userId) return null;
   const users = readJSON('users.json');
@@ -1911,7 +2150,7 @@ app.post('/api/orders', (req, res) => {
   notifyAdminsNewOrder(order);
 
   if (bot && order.userId) {
-    sendWelcomeMessage(order.userId).catch(() => {});
+    sendOrderConfirmationToCustomer(order);
   }
 
   res.json({ ...order, newBalance: getUserBalance(userId) });
@@ -2265,13 +2504,7 @@ async function initBot(retryCount = 0) {
           const { order } = result;
           persistOrder(order);
           notifyAdminsNewOrder(order);
-
-          let customerText = `✅ *Заказ #${order.id} принят!*\n\n` +
-            `📦 ${(order.items || []).map(i => `${i.description || i.name} ×${i.qty} — ${i.price * i.qty} сом`).join('\n')}\n`;
-          if (order.discount) customerText += `🎁 Скидка: −${order.discount} сом\n`;
-          if (order.balanceUsed) customerText += `💳 С баланса: −${order.balanceUsed} сом\n`;
-          customerText += `\n💰 Итого: *${order.finalTotal} сом*\n\nМы свяжемся с вами в ближайшее время!`;
-          bot.sendMessage(chatId, customerText, { parse_mode: 'Markdown' }).catch(() => {});
+          await sendOrderConfirmationToCustomer(order);
         } catch (e) {
           console.error('Ошибка обработки заказа:', e);
           bot.sendMessage(chatId, '❌ Не удалось оформить заказ. Попробуйте снова.').catch(() => {});
@@ -2297,6 +2530,26 @@ async function initBot(retryCount = 0) {
 
         // Auto-reply
         bot.sendMessage(chatId, 'Ваше сообщение получено! Администратор ответит вам в ближайшее время. 😊');
+      }
+    });
+
+    bot.on('callback_query', async (query) => {
+      const data = query.data || '';
+      if (!bot) return;
+
+      try {
+        if (data.startsWith('pay_now_')) {
+          await handlePayNowCallback(query, data.slice('pay_now_'.length));
+        } else if (data.startsWith('pay_cod_')) {
+          await handlePayCodCallback(query, data.slice('pay_cod_'.length));
+        } else if (data.startsWith('paid_')) {
+          await handlePaidCallback(query, data.slice('paid_'.length));
+        } else {
+          await bot.answerCallbackQuery(query.id);
+        }
+      } catch (err) {
+        console.error('callback_query error:', err.message || err);
+        await bot.answerCallbackQuery(query.id, { text: 'Ошибка обработки', show_alert: true }).catch(() => {});
       }
     });
 
