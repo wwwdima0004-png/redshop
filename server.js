@@ -1171,11 +1171,15 @@ async function handlePayNowCallback(query, orderIdStr) {
     await bot.answerCallbackQuery(query.id, { text: 'Это не ваш заказ', show_alert: true });
     return;
   }
-  if (order.paymentMethod) {
-    await bot.answerCallbackQuery(query.id, { text: 'Способ оплаты уже выбран', show_alert: true });
+  if (order.paid) {
+    await bot.answerCallbackQuery(query.id, {
+      text: 'Оплата уже подтверждена, способ изменить нельзя',
+      show_alert: true
+    });
     return;
   }
 
+  const previousMethod = order.paymentMethod;
   order.paymentMethod = 'prepay';
   order.paymentChosenAt = new Date().toISOString();
   saveOrderUpdate(orders, order);
@@ -1204,7 +1208,10 @@ async function handlePayNowCallback(query, orderIdStr) {
     });
   }
 
-  notifyAdminsPaymentChoice(order, '💳 Клиент выбрал «Оплатить сразу»');
+  notifyAdminsPaymentChoice(
+    order,
+    previousMethod ? '🔄 Клиент изменил способ оплаты на «Оплатить сразу»' : '💳 Клиент выбрал «Оплатить сразу»'
+  );
   await bot.answerCallbackQuery(query.id, { text: 'Инструкция по оплате отправлена ✓' });
 }
 
@@ -1221,17 +1228,24 @@ async function handlePayCodCallback(query, orderIdStr) {
     await bot.answerCallbackQuery(query.id, { text: 'Это не ваш заказ', show_alert: true });
     return;
   }
-  if (order.paymentMethod) {
-    await bot.answerCallbackQuery(query.id, { text: 'Способ оплаты уже выбран', show_alert: true });
+  if (order.paid) {
+    await bot.answerCallbackQuery(query.id, {
+      text: 'Оплата уже подтверждена, способ изменить нельзя',
+      show_alert: true
+    });
     return;
   }
 
+  const previousMethod = order.paymentMethod;
   order.paymentMethod = 'cod';
   order.paymentChosenAt = new Date().toISOString();
   saveOrderUpdate(orders, order);
 
   await bot.sendMessage(chatId, buildCodInstructionText(order), { parse_mode: 'Markdown' });
-  notifyAdminsPaymentChoice(order, '🚚 Клиент выбрал «Оплата при получении»');
+  notifyAdminsPaymentChoice(
+    order,
+    previousMethod ? '🔄 Клиент изменил способ оплаты на «Оплата при получении»' : '🚚 Клиент выбрал «Оплата при получении»'
+  );
   await bot.answerCallbackQuery(query.id, { text: 'Доставка при получении ✓' });
 }
 
