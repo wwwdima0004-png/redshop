@@ -264,6 +264,81 @@ function startOrderCleanupScheduler() {
   setInterval(cleanupOldOrders, ORDER_CLEANUP_INTERVAL_MS);
 }
 
+const UNPAID_PREPAY_TIMEOUT_MS = 60 * 60 * 1000;
+const UNPAID_ORDERS_CHECK_INTERVAL_MS = 5 * 60 * 1000;
+const AUTO_CANCEL_COMMENT = 'Автоотмена: заказ не оплачен в течение 60 минут';
+
+let unpaidOrdersProcessing = false;
+
+async function checkUnpaidOrders() {
+  if (!bot || unpaidOrdersProcessing) return;
+  unpaidOrdersProcessing = true;
+
+  try {
+    const orders = readJSON('orders.json');
+    if (!Array.isArray(orders) || orders.length === 0) return;
+
+    const products = readJSON('products.json');
+    let productsChanged = false;
+    let ordersChanged = false;
+    const now = Date.now();
+
+    for (const order of orders) {
+      const status = normalizeOrderStatus(order.status);
+      if (status !== 'new') continue;
+      if (order.paymentMethod !== 'prepay') continue;
+      if (order.paid === true) continue;
+      if (!order.paymentChosenAt) continue;
+
+      const chosenAt = new Date(order.paymentChosenAt).getTime();
+      if (!Number.isFinite(chosenAt)) continue;
+      if (now - chosenAt <= UNPAID_PREPAY_TIMEOUT_MS) continue;
+
+      applyOrderStatusInventory(products, order, status, 'cancel');
+      productsChanged = true;
+      order.status = 'cancel';
+      order.comment = AUTO_CANCEL_COMMENT;
+      ordersChanged = true;
+
+      if (order.userId) {
+        await bot.sendMessage(order.userId,
+          `❌ *Заказ #${order.id} отменён автоматически*\n\n` +
+          `Оплата не поступила в течение 60 минут, поэтому заказ был отменён. ` +
+          `Товары снова доступны для заказа.\n\n` +
+          `Вы можете оформить новый заказ в любое время через магазин 🛍`,
+          { parse_mode: 'Markdown' }
+        ).catch(err => console.warn(`Auto-cancel notify user ${order.userId}:`, err.message));
+      }
+
+      const adminText =
+        `⚠️ *Автоотмена заказа #${order.id}*\n\n` +
+        `Оплата не поступила в течение 60 минут.\n` +
+        `👤 ${order.userName || 'Аноним'}${order.username ? ` (@${order.username})` : ''}\n` +
+        `💰 ${order.finalTotal} сом`;
+      ADMIN_IDS.forEach(id => {
+        bot.sendMessage(id, adminText, { parse_mode: 'Markdown' }).catch(() => {});
+      });
+
+      console.log(`Auto-cancelled unpaid prepay order #${order.id}`);
+    }
+
+    if (productsChanged) writeJSON('products.json', products);
+    if (ordersChanged) writeJSON('orders.json', orders);
+  } catch (err) {
+    console.error('checkUnpaidOrders error:', err.message || err);
+  } finally {
+    unpaidOrdersProcessing = false;
+  }
+}
+
+function startUnpaidOrdersScheduler() {
+  checkUnpaidOrders().catch(err => console.warn('checkUnpaidOrders (initial):', err.message));
+  setInterval(() => {
+    checkUnpaidOrders().catch(err => console.warn('checkUnpaidOrders:', err.message));
+  }, UNPAID_ORDERS_CHECK_INTERVAL_MS);
+  console.log(`⏱️ Проверка неоплаченных предоплат: каждые ${UNPAID_ORDERS_CHECK_INTERVAL_MS / 60000} мин, таймаут 60 мин`);
+}
+
 function getReferralBonus() {
   return readSettings().referralBonus;
 }
@@ -1262,6 +1337,16 @@ async function handlePaidCallback(query, orderIdStr) {
     await bot.answerCallbackQuery(query.id, { text: 'Заказ не найден', show_alert: true });
     return;
   }
+
+  const prevStatus = normalizeOrderStatus(order.status);
+  if (prevStatus === 'cancel') {
+    await bot.answerCallbackQuery(query.id, {
+      text: 'Заказ отменён, нельзя подтвердить оплату',
+      show_alert: true
+    });
+    return;
+  }
+
   if (order.paid) {
     await bot.answerCallbackQuery(query.id, { text: 'Оплата уже подтверждена' });
     return;
@@ -1269,18 +1354,34 @@ async function handlePaidCallback(query, orderIdStr) {
 
   order.paid = true;
   order.paidAt = new Date().toISOString();
+
+  let statusChangedToDone = false;
+  if (prevStatus === 'new') {
+    const products = readJSON('products.json');
+    applyOrderStatusInventory(products, order, prevStatus, 'done');
+    writeJSON('products.json', products);
+    order.status = 'done';
+    statusChangedToDone = true;
+  }
+
   saveOrderUpdate(orders, order);
 
   if (order.userId) {
-    await bot.sendMessage(order.userId,
+    let customerText =
       `✅ *Оплата по заказу #${order.id} подтверждена!*\n\n` +
-      `Мы передали заказ в доставку. Спасибо за покупку! 🛒`,
-      { parse_mode: 'Markdown' }
-    ).catch(() => {});
+      `Мы передали заказ в доставку. Спасибо за покупку! 🛒`;
+    if (statusChangedToDone) {
+      customerText =
+        `✅ *Оплата по заказу #${order.id} подтверждена!*\n\n` +
+        `Статус заказа: *${ORDER_STATUS_NOTIFY_LABELS.done}*\n` +
+        `Мы передали заказ в доставку. Спасибо за покупку! 🛒`;
+    }
+    await bot.sendMessage(order.userId, customerText, { parse_mode: 'Markdown' }).catch(() => {});
   }
 
   if (query.message) {
-    const markedText = `${query.message.text || ''}\n\n✅ *Оплата подтверждена*`;
+    const statusNote = statusChangedToDone ? '\n\n✅ *Заказ выполнен*' : '';
+    const markedText = `${query.message.text || ''}\n\n✅ *Оплата подтверждена*${statusNote}`;
     await bot.editMessageText(markedText, {
       chat_id: query.message.chat.id,
       message_id: query.message.message_id,
@@ -1294,7 +1395,10 @@ async function handlePaidCallback(query, orderIdStr) {
     });
   }
 
-  await bot.answerCallbackQuery(query.id, { text: 'Оплата подтверждена ✓' });
+  const answerText = statusChangedToDone
+    ? 'Оплата подтверждена, заказ выполнен'
+    : 'Оплата подтверждена ✓';
+  await bot.answerCallbackQuery(query.id, { text: answerText });
 }
 
 function getUserBalance(userId) {
@@ -2386,6 +2490,90 @@ function sendWelcomeMessage(chatId) {
   return bot.sendMessage(chatId, WELCOME_TEXT, getWelcomeKeyboard());
 }
 
+function getOrderGuideStepContent(step) {
+  if (step === 2) {
+    return {
+      text:
+        '📋 *Как оформить заказ — шаг 2 из 3*\n\n' +
+        'При оформлении укажите *номер телефона*, *адрес доставки* и удобное время — ' +
+        'это нужно, чтобы курьер или менеджер мог связаться с вами.',
+      reply_markup: {
+        inline_keyboard: [
+          [
+            { text: '▶️ Продолжить', callback_data: 'next_step_3' },
+            { text: '🏠 В меню', callback_data: 'to_menu' }
+          ]
+        ]
+      }
+    };
+  }
+  if (step === 3) {
+    return {
+      text:
+        '📋 *Как оформить заказ — шаг 3 из 3*\n\n' +
+        'Проверьте состав заказа и подтвердите оформление. ' +
+        'После этого выберите способ оплаты — мы свяжемся с вами, если понадобится уточнение.',
+      reply_markup: {
+        inline_keyboard: [[{ text: '🏠 В меню', callback_data: 'to_menu' }]]
+      }
+    };
+  }
+  return {
+    text:
+      '📋 *Как оформить заказ — шаг 1 из 3*\n\n' +
+      'Откройте магазин и выберите устройство и вкус в каталоге. ' +
+      'Добавьте нужные позиции в корзину или нажмите «Купить».',
+    reply_markup: {
+      inline_keyboard: [
+        [
+          { text: '▶️ Продолжить', callback_data: 'next_step_2' },
+          { text: '🏠 В меню', callback_data: 'to_menu' }
+        ]
+      ]
+    }
+  };
+}
+
+function sendOrderGuideStep(chatId, step, messageId = null) {
+  if (!bot) return Promise.resolve();
+  const guide = getOrderGuideStepContent(step);
+  const opts = { parse_mode: 'Markdown', reply_markup: guide.reply_markup };
+  if (messageId) {
+    return bot.editMessageText(guide.text, {
+      chat_id: chatId,
+      message_id: messageId,
+      ...opts
+    });
+  }
+  return bot.sendMessage(chatId, guide.text, opts);
+}
+
+async function handleGuideStepCallback(query, step) {
+  const chatId = query.message?.chat?.id;
+  const messageId = query.message?.message_id;
+  if (!chatId || !messageId) {
+    await bot.answerCallbackQuery(query.id);
+    return;
+  }
+  await sendOrderGuideStep(chatId, step, messageId);
+  await bot.answerCallbackQuery(query.id);
+}
+
+async function handleGuideToMenuCallback(query) {
+  const chatId = query.message?.chat?.id;
+  const messageId = query.message?.message_id;
+  if (!chatId || !messageId) {
+    await bot.answerCallbackQuery(query.id);
+    return;
+  }
+  await bot.editMessageText(WELCOME_TEXT, {
+    chat_id: chatId,
+    message_id: messageId,
+    ...getWelcomeKeyboard()
+  });
+  await bot.answerCallbackQuery(query.id);
+}
+
 function isStartCommand(text) {
   if (!text || typeof text !== 'string') return false;
   const cmd = text.trim().split(/\s+/)[0].split('@')[0];
@@ -2478,7 +2666,7 @@ async function initBot(retryCount = 0) {
             // self-referral — ignore silently
           }
         }
-        await sendWelcomeMessage(chatId);
+        await sendOrderGuideStep(chatId, 1);
         return;
       }
 
@@ -2553,6 +2741,12 @@ async function initBot(retryCount = 0) {
           await handlePayCodCallback(query, data.slice('pay_cod_'.length));
         } else if (data.startsWith('paid_')) {
           await handlePaidCallback(query, data.slice('paid_'.length));
+        } else if (data === 'next_step_2') {
+          await handleGuideStepCallback(query, 2);
+        } else if (data === 'next_step_3') {
+          await handleGuideStepCallback(query, 3);
+        } else if (data === 'to_menu') {
+          await handleGuideToMenuCallback(query);
         } else {
           await bot.answerCallbackQuery(query.id);
         }
@@ -2619,6 +2813,7 @@ console.log(`📦 Товаров в каталоге: ${startupProducts.length}`
 initBot();
 startNotificationScheduler();
 startOrderCleanupScheduler();
+startUnpaidOrdersScheduler();
 
 app.listen(PORT, () => {
   console.log(`🚀 Red Shop сервер запущен на порту ${PORT}`);
