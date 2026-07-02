@@ -2479,15 +2479,75 @@ function getWelcomeKeyboard() {
     reply_markup: {
       inline_keyboard: [
         [{ text: '🛍️ Открыть магазин', web_app: { url: WEBAPP_URL } }],
-        [{ text: '💬 Написать менеджеру', url: 'https://t.me/roomsellerr' }]
+        [{ text: '💬 Написать менеджеру', url: MANAGER_URL }]
       ]
     }
   };
 }
 
-function sendWelcomeMessage(chatId) {
-  if (!bot) return Promise.resolve();
-  return bot.sendMessage(chatId, WELCOME_TEXT, getWelcomeKeyboard());
+const REPLY_BTN_HOW_TO = '📖 Как заказать';
+const REPLY_BTN_OPEN_SHOP = '🛍️ Открыть магазин';
+const REPLY_BTN_MANAGER = '💬 Написать менеджеру';
+
+function getMainReplyKeyboard() {
+  return {
+    keyboard: [
+      [{ text: REPLY_BTN_HOW_TO }],
+      [{ text: REPLY_BTN_OPEN_SHOP }, { text: REPLY_BTN_MANAGER }]
+    ],
+    resize_keyboard: true,
+    is_persistent: true
+  };
+}
+
+function getMainReplyKeyboardMarkup() {
+  return { reply_markup: getMainReplyKeyboard() };
+}
+
+async function showMainReplyKeyboard(chatId) {
+  if (!bot) return;
+  await bot.sendMessage(chatId, '👇', getMainReplyKeyboardMarkup()).catch(() => {});
+}
+
+async function sendWelcomeMessage(chatId) {
+  if (!bot) return;
+  await bot.sendMessage(chatId, WELCOME_TEXT, getWelcomeKeyboard());
+  await showMainReplyKeyboard(chatId);
+}
+
+function getOpenShopInlineMarkup() {
+  return {
+    reply_markup: {
+      inline_keyboard: [[{ text: '🛍️ Открыть магазин', web_app: { url: WEBAPP_URL } }]]
+    }
+  };
+}
+
+function getManagerInlineMarkup() {
+  return {
+    reply_markup: {
+      inline_keyboard: [[{ text: '💬 Написать менеджеру', url: MANAGER_URL }]]
+    }
+  };
+}
+
+async function handleReplyKeyboardAction(msg) {
+  const chatId = msg.chat.id;
+  const text = msg.text;
+
+  if (text === REPLY_BTN_HOW_TO) {
+    await sendOrderGuideStep(chatId, 1);
+    return true;
+  }
+  if (text === REPLY_BTN_OPEN_SHOP) {
+    await bot.sendMessage(chatId, 'Нажмите, чтобы открыть магазин 👇', getOpenShopInlineMarkup());
+    return true;
+  }
+  if (text === REPLY_BTN_MANAGER) {
+    await bot.sendMessage(chatId, 'Нажмите, чтобы написать менеджеру 👇', getManagerInlineMarkup());
+    return true;
+  }
+  return false;
 }
 
 function getOrderGuideStepContent(step) {
@@ -2667,6 +2727,7 @@ async function initBot(retryCount = 0) {
           }
         }
         await sendOrderGuideStep(chatId, 1);
+        await showMainReplyKeyboard(chatId);
         return;
       }
 
@@ -2706,6 +2767,11 @@ async function initBot(retryCount = 0) {
           console.error('Ошибка обработки заказа:', e);
           bot.sendMessage(chatId, '❌ Не удалось оформить заказ. Попробуйте снова.').catch(() => {});
         }
+        return;
+      }
+
+      // Reply keyboard actions (before admin notify / auto-reply)
+      if (msg.text && await handleReplyKeyboardAction(msg)) {
         return;
       }
 
