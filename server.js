@@ -2416,13 +2416,8 @@ async function initBot(retryCount = 0) {
   await new Promise(r => setTimeout(r, 1500));
 
   try {
-    bot = new TelegramBot(BOT_TOKEN, {
-      polling: {
-        interval: 300,
-        autoStart: true,
-        params: { timeout: 10 }
-      }
-    });
+    bot = new TelegramBot(BOT_TOKEN, { polling: false });
+    await bot.deleteWebHook({ drop_pending_updates: false });
 
     bot.on('message', async (msg) => {
       const chatId = msg.chat.id;
@@ -2534,8 +2529,8 @@ async function initBot(retryCount = 0) {
     });
 
     bot.on('callback_query', async (query) => {
+      console.log('CALLBACK:', query.data, 'from', query.from?.id);
       const data = query.data || '';
-      if (!bot) return;
 
       try {
         if (data.startsWith('pay_now_')) {
@@ -2576,10 +2571,18 @@ async function initBot(retryCount = 0) {
       console.error(`Бот polling error [${code || 'ERR'}]: ${err.message}`);
     });
 
+    await bot.startPolling({
+      interval: 300,
+      params: {
+        timeout: 10,
+        allowed_updates: ['message', 'callback_query']
+      }
+    });
+
     // Set menu button to open Mini App
     setBotMenuButton();
 
-    console.log(`✅ Telegram бот запущен${retryCount > 0 ? ` (попытка #${retryCount + 1})` : ''}`);
+    console.log(`✅ Telegram бот запущен${retryCount > 0 ? ` (попытка #${retryCount + 1})` : ''} — polling: message, callback_query`);
   } catch (err) {
     console.error('Ошибка запуска бота:', err.message);
     const delay = Math.min(10000 + retryCount * 5000, 60000);
