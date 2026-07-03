@@ -66,9 +66,10 @@ function ensureDataFiles() {
   migrateOrdersStatusesAndReservation();
 }
 
-const ORDER_STATUSES = ['new', 'done', 'defect', 'cancel'];
+const ORDER_STATUSES = ['waiting_payment', 'new', 'done', 'defect', 'cancel'];
 
 const ORDER_STATUS_NOTIFY_LABELS = {
+  waiting_payment: 'Ожидает оплаты ⏳',
   new: 'Новый 🆕',
   done: 'Выполнено ✅',
   defect: 'Брак ⚠️',
@@ -79,6 +80,11 @@ function normalizeOrderStatus(status) {
   if (status === 'processing') return 'new';
   if (ORDER_STATUSES.includes(status)) return status;
   return 'new';
+}
+
+function inventoryOrderStatus(status) {
+  const s = normalizeOrderStatus(status);
+  return s === 'waiting_payment' ? 'new' : s;
 }
 
 function normalizeProductReserved(product) {
@@ -111,8 +117,8 @@ function applyProductInventoryDelta(prod, { stockDelta = 0, reservedDelta = 0, s
 }
 
 function getInventoryTransitionDeltas(fromStatus, toStatus, qty) {
-  const from = normalizeOrderStatus(fromStatus);
-  const to = normalizeOrderStatus(toStatus);
+  const from = inventoryOrderStatus(fromStatus);
+  const to = inventoryOrderStatus(toStatus);
   const q = Math.max(0, Math.round(Number(qty) || 0));
   if (!q || from === to) return { stockDelta: 0, reservedDelta: 0, salesDelta: 0 };
 
@@ -184,7 +190,7 @@ function migrateOrdersStatusesAndReservation() {
 
     if (order.reservationMigrated) return;
 
-    if (normalized === 'new') {
+    if (normalized === 'new' || normalized === 'waiting_payment') {
       applyOrderItemsInventory(products, order.items, (prod, qty) => {
         prod.stock = normalizeProductStock(prod) + qty;
         applyProductInventoryDelta(prod, { reservedDelta: qty });
@@ -264,17 +270,77 @@ function startOrderCleanupScheduler() {
   setInterval(cleanupOldOrders, ORDER_CLEANUP_INTERVAL_MS);
 }
 
+const WAITING_PAYMENT_TIMEOUT_MS = 30 * 60 * 1000;
 const UNPAID_PREPAY_TIMEOUT_MS = 60 * 60 * 1000;
 const UNPAID_ORDERS_CHECK_INTERVAL_MS = 5 * 60 * 1000;
+const AUTO_CANCEL_WAITING_PAYMENT_COMMENT = 'Автоотмена: способ оплаты не выбран в течение 30 минут';
 const AUTO_CANCEL_COMMENT = 'Автоотмена: заказ не оплачен в течение 60 минут';
 
 let unpaidOrdersProcessing = false;
+
+function promoteWaitingPaymentToNew(order) {
+  if (normalizeOrderStatus(order.status) === 'waiting_payment') {
+    order.status = 'new';
+  }
+}
+
+async function checkWaitingPaymentOrders() {
+  const orders = readJSON('orders.json');
+  if (!Array.isArray(orders) || orders.length === 0) return;
+
+  const products = readJSON('products.json');
+  let productsChanged = false;
+  let ordersChanged = false;
+  const now = Date.now();
+
+  for (const order of orders) {
+    const status = normalizeOrderStatus(order.status);
+    if (status !== 'waiting_payment') continue;
+    if (order.paymentMethod) continue;
+
+    const createdAt = new Date(order.createdAt).getTime();
+    if (!Number.isFinite(createdAt)) continue;
+    if (now - createdAt <= WAITING_PAYMENT_TIMEOUT_MS) continue;
+
+    applyOrderStatusInventory(products, order, status, 'cancel');
+    productsChanged = true;
+    order.status = 'cancel';
+    order.comment = AUTO_CANCEL_WAITING_PAYMENT_COMMENT;
+    ordersChanged = true;
+
+    if (order.userId) {
+      await bot.sendMessage(order.userId,
+        `❌ *Заказ #${order.id} отменён автоматически*\n\n` +
+        `Способ оплаты не был выбран в течение 30 минут, поэтому заказ был отменён. ` +
+        `Товары снова доступны для заказа.\n\n` +
+        `Вы можете оформить новый заказ в любое время через магазин 🛍`,
+        { parse_mode: 'Markdown' }
+      ).catch(err => console.warn(`Auto-cancel waiting_payment user ${order.userId}:`, err.message));
+    }
+
+    const adminText =
+      `⚠️ *Автоотмена заказа #${order.id}*\n\n` +
+      `Способ оплаты не выбран в течение 30 минут.\n` +
+      `👤 ${order.userName || 'Аноним'}${order.username ? ` (@${order.username})` : ''}\n` +
+      `💰 ${order.finalTotal} сом`;
+    ADMIN_IDS.forEach(id => {
+      bot.sendMessage(id, adminText, { parse_mode: 'Markdown' }).catch(() => {});
+    });
+
+    console.log(`Auto-cancelled waiting_payment order #${order.id}`);
+  }
+
+  if (productsChanged) writeJSON('products.json', products);
+  if (ordersChanged) writeJSON('orders.json', orders);
+}
 
 async function checkUnpaidOrders() {
   if (!bot || unpaidOrdersProcessing) return;
   unpaidOrdersProcessing = true;
 
   try {
+    await checkWaitingPaymentOrders();
+
     const orders = readJSON('orders.json');
     if (!Array.isArray(orders) || orders.length === 0) return;
 
@@ -336,7 +402,7 @@ function startUnpaidOrdersScheduler() {
   setInterval(() => {
     checkUnpaidOrders().catch(err => console.warn('checkUnpaidOrders:', err.message));
   }, UNPAID_ORDERS_CHECK_INTERVAL_MS);
-  console.log(`⏱️ Проверка неоплаченных предоплат: каждые ${UNPAID_ORDERS_CHECK_INTERVAL_MS / 60000} мин, таймаут 60 мин`);
+  console.log(`⏱️ Автоотмена заказов: каждые ${UNPAID_ORDERS_CHECK_INTERVAL_MS / 60000} мин (waiting_payment 30 мин, prepay 60 мин)`);
 }
 
 function getReferralBonus() {
@@ -1077,7 +1143,7 @@ function buildValidatedOrder(orderInput) {
     freeOrderApplied: payment.freeOrderApplied,
     balanceUsed: payment.balanceUsed,
     finalTotal: payment.finalTotal,
-    status: 'new',
+    status: 'waiting_payment',
     createdAt: new Date().toISOString()
   };
 
@@ -1257,6 +1323,7 @@ async function handlePayNowCallback(query, orderIdStr) {
   const previousMethod = order.paymentMethod;
   order.paymentMethod = 'prepay';
   order.paymentChosenAt = new Date().toISOString();
+  promoteWaitingPaymentToNew(order);
   saveOrderUpdate(orders, order);
 
   const qrPath = getPaymentQrFilePath();
@@ -1314,6 +1381,7 @@ async function handlePayCodCallback(query, orderIdStr) {
   const previousMethod = order.paymentMethod;
   order.paymentMethod = 'cod';
   order.paymentChosenAt = new Date().toISOString();
+  promoteWaitingPaymentToNew(order);
   saveOrderUpdate(orders, order);
 
   await bot.sendMessage(chatId, buildCodInstructionText(order), { parse_mode: 'Markdown' });
@@ -2405,13 +2473,15 @@ app.get('/api/stats', requireAdmin, (req, res) => {
   // Most popular product
   const topProduct = [...products].sort((a, b) => (b.sales || 0) - (a.sales || 0))[0];
 
+  let waitingPaymentCount = 0;
   let newCount = 0;
   let doneCount = 0;
   let defectCount = 0;
   let cancelCount = 0;
   (orders || []).forEach(o => {
     const status = normalizeOrderStatus(o.status);
-    if (status === 'new') newCount += 1;
+    if (status === 'waiting_payment') waitingPaymentCount += 1;
+    else if (status === 'new') newCount += 1;
     else if (status === 'done') doneCount += 1;
     else if (status === 'defect') defectCount += 1;
     else if (status === 'cancel') cancelCount += 1;
@@ -2447,6 +2517,7 @@ app.get('/api/stats', requireAdmin, (req, res) => {
     topProduct: topProduct ? { name: topProduct.name, sales: topProduct.sales } : null,
     availableProducts: products.filter(p => p.available).length,
     totalProducts: products.length,
+    waitingPaymentCount,
     newCount,
     doneCount,
     defectCount,

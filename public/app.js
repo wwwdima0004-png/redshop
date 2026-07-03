@@ -400,6 +400,7 @@ function getTelegramInitData() {
 }
 
 const ORDER_STATUS_LABELS = {
+  waiting_payment: 'Ожидает оплаты',
   new: 'Новый',
   done: 'Выполнено',
   defect: 'Брак',
@@ -410,6 +411,29 @@ function normalizeOrderStatus(status) {
   if (status === 'processing') return 'new';
   if (ORDER_STATUS_LABELS[status]) return status;
   return 'new';
+}
+
+function formatOrderPaymentMethod(order) {
+  if (order.paymentMethod === 'prepay') return '💳 Оплата: сразу (предоплата)';
+  if (order.paymentMethod === 'cod') return '🚚 Оплата: при получении';
+  return '⏳ Способ оплаты не выбран';
+}
+
+function formatOrderPaymentStatus(order) {
+  if (order.paid === true) return '✅ Оплачено';
+  if (order.paymentMethod === 'prepay') return '❌ Не оплачено';
+  return '';
+}
+
+function getOrderClientLink(order) {
+  if (order.username) {
+    const username = String(order.username).replace(/^@/, '');
+    return { href: `https://t.me/${encodeURIComponent(username)}`, label: '💬 Написать клиенту' };
+  }
+  if (order.userId) {
+    return { href: `tg://user?id=${order.userId}`, label: '💬 Написать клиенту' };
+  }
+  return null;
 }
 
 function getTelegramUser() {
@@ -3632,6 +3656,11 @@ function renderOrders() {
           ${order.address ? `<div>📍 ${escapeHtml(order.address)}</div>` : ''}
         </div>`
       : '';
+    const paymentStatusLine = formatOrderPaymentStatus(order);
+    const clientLink = getOrderClientLink(order);
+    const clientLinkHtml = clientLink
+      ? `<a class="btn-sm btn-sm-grey order-client-link" href="${escapeHtml(clientLink.href)}" target="_blank" rel="noopener noreferrer">${clientLink.label}</a>`
+      : '';
 
     card.innerHTML = `
       <div class="order-header">
@@ -3644,6 +3673,11 @@ function renderOrders() {
       </div>
       <div class="order-items">📦 ${itemsText}</div>
       ${contactBlock}
+      <div class="order-payment-info">
+        <div>${formatOrderPaymentMethod(order)}</div>
+        ${paymentStatusLine ? `<div>${paymentStatusLine}</div>` : ''}
+      </div>
+      ${clientLinkHtml}
       <div class="order-comment-row">
         <label class="order-comment-label">💬 Комментарий${orderStatus === 'cancel' ? ' (обязателен при отмене)' : ''}</label>
         <textarea class="order-comment-input" id="orderComment_${order.id}" rows="2" placeholder="Комментарий к заказу">${escapeHtml(order.comment || '')}</textarea>
@@ -3655,6 +3689,7 @@ function renderOrders() {
           ${order.discount ? `<div class="order-discount">Скидка: −${order.discount} сом</div>` : ''}
         </div>
         <select class="order-status-select" onchange="updateOrderStatus(${order.id}, this.value, this)">
+          <option value="waiting_payment" ${orderStatus==='waiting_payment'?'selected':''}>⏳ Ожидает оплаты</option>
           <option value="new" ${orderStatus==='new'?'selected':''}>🆕 Новый</option>
           <option value="done" ${orderStatus==='done'?'selected':''}>✅ Выполнено</option>
           <option value="defect" ${orderStatus==='defect'?'selected':''}>⚠️ Брак</option>
@@ -4082,6 +4117,10 @@ function renderStats(stats, products) {
   const statusGrid = document.getElementById('statsOrderStatus');
   if (statusGrid) {
     statusGrid.innerHTML = `
+      <div class="stat-card stat-card-status stat-card-waiting">
+        <div class="stat-value">${stats.waitingPaymentCount ?? 0}</div>
+        <div class="stat-label">Ожидает оплаты</div>
+      </div>
       <div class="stat-card stat-card-status stat-card-new">
         <div class="stat-value">${stats.newCount ?? 0}</div>
         <div class="stat-label">Новые</div>
