@@ -13,6 +13,13 @@ const PORT = process.env.PORT || 3000;
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const WEBAPP_URL = process.env.WEBAPP_URL || `http://localhost:${PORT}`;
 const ADMIN_IDS = (process.env.ADMIN_IDS || '').split(',').map(s => parseInt(s.trim())).filter(Boolean);
+const ORDERS_CHANNEL_ID = (() => {
+  const raw = process.env.ORDERS_CHANNEL_ID;
+  if (!raw || !String(raw).trim()) return null;
+  const trimmed = String(raw).trim();
+  const num = Number(trimmed);
+  return Number.isFinite(num) ? num : trimmed;
+})();
 const ADMIN_PASSWORDS = [
   process.env.ADMIN_PASS_1 || 'RedAdmin_2024',
   process.env.ADMIN_PASS_2 || 'RedShop_Boss'
@@ -386,6 +393,7 @@ async function checkUnpaidOrders() {
       });
 
       console.log(`Auto-cancelled unpaid prepay order #${order.id}`);
+      await updateOrderInChannel(order);
     }
 
     if (productsChanged) writeJSON('products.json', products);
@@ -1185,6 +1193,105 @@ function notifyAdminsNewOrder(order) {
   ADMIN_IDS.forEach(id => bot.sendMessage(id, text, { parse_mode: 'Markdown' }).catch(() => {}));
 }
 
+function escapeMarkdown(text) {
+  return String(text ?? '').replace(/([_*[\]()~`>#+\-=|{}.!\\])/g, '\\$1');
+}
+
+function formatChannelPaymentMethod(order) {
+  if (order.paymentMethod === 'prepay') return '💳 Оплата сразу (предоплата)';
+  if (order.paymentMethod === 'cod') return '🚚 Оплата при получении';
+  return '';
+}
+
+function formatChannelPaymentStatus(order) {
+  if (order.paid === true) return '✅ Оплачено';
+  if (order.paymentMethod === 'prepay') return '⏳ Ожидает оплаты';
+  return '';
+}
+
+function buildChannelOrderText(order) {
+  const itemLines = (order.items || []).map(i => {
+    const pos = i.categoryName || order.categoryName || '';
+    const flavor = i.description || i.name;
+    const line = pos ? `${pos} — ${flavor} ×${i.qty || 1}` : `${flavor} ×${i.qty || 1}`;
+    return `• ${escapeMarkdown(line)}`;
+  }).join('\n');
+
+  const userName = escapeMarkdown(order.userName || 'Аноним');
+  const usernamePart = order.username
+    ? ` (@${escapeMarkdown(String(order.username).replace(/^@/, ''))})`
+    : '';
+
+  let text = `🆕 *Заказ #${order.id}*\n\n`;
+  text += `👤 ${userName}${usernamePart}\n\n`;
+  text += `📦 *Товары:*\n${itemLines || '—'}\n\n`;
+  text += `💰 Сумма: ${order.total} сом\n`;
+  if (order.discount) text += `🎁 Скидка: −${order.discount} сом\n`;
+  if (order.promoDiscountUsed) text += `🏷️ Промо\\-скидка: −${order.promoDiscountUsed} сом\n`;
+  if (order.freeOrderApplied) text += `🎁 Бесплатный заказ \\(промокод\\)\n`;
+  if (order.balanceUsed) text += `💳 С баланса: −${order.balanceUsed} сом\n`;
+  text += `✅ *Итого: ${order.finalTotal} сом*\n`;
+
+  if (order.phone) text += `\n📞 ${escapeMarkdown(order.phone)}`;
+  if (order.address) text += `\n📍 ${escapeMarkdown(order.address)}`;
+  if (order.comment) text += `\n💬 ${escapeMarkdown(order.comment)}`;
+
+  const paymentMethod = formatChannelPaymentMethod(order);
+  if (paymentMethod) text += `\n\n${paymentMethod}`;
+
+  const paymentStatus = formatChannelPaymentStatus(order);
+  if (paymentStatus) text += `\n${paymentStatus}`;
+
+  const statusLabel = ORDER_STATUS_NOTIFY_LABELS[normalizeOrderStatus(order.status)] || order.status;
+  text += `\n\n📋 *Статус:* ${escapeMarkdown(statusLabel)}`;
+
+  return text;
+}
+
+async function sendOrderToChannel(order, orders) {
+  if (!bot || !ORDERS_CHANNEL_ID) return;
+  if (order.channelMessageId) return;
+  if (normalizeOrderStatus(order.status) === 'waiting_payment') return;
+  if (!order.paymentMethod) return;
+
+  try {
+    const text = buildChannelOrderText(order);
+    const msg = await bot.sendMessage(ORDERS_CHANNEL_ID, text, { parse_mode: 'Markdown' });
+    order.channelMessageId = msg.message_id;
+    if (orders) {
+      saveOrderUpdate(orders, order);
+    } else {
+      const allOrders = readJSON('orders.json');
+      saveOrderUpdate(allOrders, order);
+    }
+  } catch (err) {
+    console.error('sendOrderToChannel error:', err.message || err);
+  }
+}
+
+async function updateOrderInChannel(order) {
+  if (!bot || !ORDERS_CHANNEL_ID || !order.channelMessageId) return;
+
+  try {
+    const text = buildChannelOrderText(order);
+    await bot.editMessageText(text, {
+      chat_id: ORDERS_CHANNEL_ID,
+      message_id: order.channelMessageId,
+      parse_mode: 'Markdown'
+    });
+  } catch (err) {
+    console.error('updateOrderInChannel error:', err.message || err);
+  }
+}
+
+async function syncOrderChannelOnPaymentChoice(order, orders, statusBefore) {
+  if (order.channelMessageId) {
+    await updateOrderInChannel(order);
+  } else if (statusBefore === 'waiting_payment') {
+    await sendOrderToChannel(order, orders);
+  }
+}
+
 const MANAGER_URL = 'https://t.me/roomsellerr';
 
 function formatOrderItemsText(order) {
@@ -1320,6 +1427,7 @@ async function handlePayNowCallback(query, orderIdStr) {
     return;
   }
 
+  const statusBefore = normalizeOrderStatus(order.status);
   const previousMethod = order.paymentMethod;
   order.paymentMethod = 'prepay';
   order.paymentChosenAt = new Date().toISOString();
@@ -1354,6 +1462,7 @@ async function handlePayNowCallback(query, orderIdStr) {
     order,
     previousMethod ? '🔄 Клиент изменил способ оплаты на «Оплатить сразу»' : '💳 Клиент выбрал «Оплатить сразу»'
   );
+  await syncOrderChannelOnPaymentChoice(order, orders, statusBefore);
   await bot.answerCallbackQuery(query.id, { text: 'Инструкция по оплате отправлена ✓' });
 }
 
@@ -1378,6 +1487,7 @@ async function handlePayCodCallback(query, orderIdStr) {
     return;
   }
 
+  const statusBefore = normalizeOrderStatus(order.status);
   const previousMethod = order.paymentMethod;
   order.paymentMethod = 'cod';
   order.paymentChosenAt = new Date().toISOString();
@@ -1389,6 +1499,7 @@ async function handlePayCodCallback(query, orderIdStr) {
     order,
     previousMethod ? '🔄 Клиент изменил способ оплаты на «Оплата при получении»' : '🚚 Клиент выбрал «Оплата при получении»'
   );
+  await syncOrderChannelOnPaymentChoice(order, orders, statusBefore);
   await bot.answerCallbackQuery(query.id, { text: 'Доставка при получении ✓' });
 }
 
@@ -1433,6 +1544,7 @@ async function handlePaidCallback(query, orderIdStr) {
   }
 
   saveOrderUpdate(orders, order);
+  await updateOrderInChannel(order);
 
   if (order.userId) {
     let customerText =
@@ -2342,7 +2454,7 @@ app.post('/api/orders', (req, res) => {
   res.json({ ...order, newBalance: getUserBalance(userId) });
 });
 
-app.put('/api/orders/:id/status', requireAdmin, (req, res) => {
+app.put('/api/orders/:id/status', requireAdmin, async (req, res) => {
   const orders = readJSON('orders.json');
   const order = orders.find(o => o.id === parseInt(req.params.id));
   if (!order) return res.status(404).json({ error: 'Заказ не найден' });
@@ -2376,6 +2488,8 @@ app.put('/api/orders/:id/status', requireAdmin, (req, res) => {
     const label = ORDER_STATUS_NOTIFY_LABELS[newStatus] || newStatus;
     bot.sendMessage(order.userId, `Статус вашего заказа #${order.id} изменён: ${label}`).catch(() => {});
   }
+
+  await updateOrderInChannel(order);
 
   res.json(order);
 });
